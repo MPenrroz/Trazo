@@ -89,3 +89,21 @@ export function checkList(checks: Check[]) {
 export function card(title: string, ...children: Child[]) {
   return h('section', { class: 'card' }, h('h3', null, title), ...children);
 }
+
+/** Diálogo propio (los nativos prompt/confirm no funcionan en todos los contenedores, p. ej. vistas embebidas). */
+function dialog(title: string, opts: { input?: string; inputmode?: string; ok: string; danger?: boolean }): Promise<string | null> {
+  return new Promise((res) => {
+    const input = opts.input !== undefined ? h('input', { id: 'dlg-input', value: opts.input, inputmode: opts.inputmode ?? 'text' }) : null;
+    const close = (v: string | null) => { wrap.remove(); res(v); };
+    const okBtn = h('button', { class: opts.danger ? 'danger-solid' : '', onclick: () => close(input ? input.value : '') }, opts.ok);
+    const wrap = h('div', { class: 'dlg-back', onclick: (e: Event) => { if (e.target === wrap) close(null); } },
+      h('form', { class: 'dlg', onsubmit: (e: Event) => { e.preventDefault(); close(input ? input.value : ''); } },
+        h('p', null, title), input,
+        h('div', { class: 'row end' }, h('button', { type: 'button', class: 'ghost', onclick: () => close(null) }, 'Cancelar'), okBtn)));
+    document.body.appendChild(wrap);
+    (input ?? okBtn).focus();
+    input?.select();
+  });
+}
+export const ask = (title: string, def = '', inputmode = 'decimal') => dialog(title, { input: def, inputmode, ok: 'Aceptar' });
+export const confirmDialog = async (title: string, ok = 'Eliminar') => (await dialog(title, { ok, danger: true })) !== null;

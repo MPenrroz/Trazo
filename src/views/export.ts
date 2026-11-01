@@ -27,14 +27,14 @@ export function exportView(root: HTMLElement) {
     h('div', { class: 'col' },
       card('Rhino',
         item('Modelo Rhino (.3dm)', 'Sólidos por capa y rol, perfiles CNC anidados, boceto de referencia y parámetros en DocumentUserText. Abre en Rhino 7/8 (Mac/Windows) o en el visor Rhino de iPad.', 'Descargar .3dm', async () => {
-          const a = analyse(parts(), store.method, store.material, store.project);
+          const a = analyse(parts(), store.method, store.material, store.project, store.project.fab.materials);
           const bytes = await export3dm(store.project, parts(), store.values, a.nest, buildSpec(false, false));
           await shareOrDownload(bytes, `${name()}.3dm`, 'application/octet-stream');
         }, true),
         item('Especificación paramétrica (.json)', 'Parámetros, rangos, perfil y piezas en coordenadas de mundo. La lee el script de Rhino/Grasshopper y la tienda.', 'Descargar spec', () => shareOrDownload(JSON.stringify(buildSpec(true, false), null, 2), `${name()}.trazo-spec.json`, 'application/json')),
         item('Script Rhino / Grasshopper (Python 3)', 'Reconstruye el producto desde el spec en Rhino 8 (ScriptEditor) o dentro de un componente Python de Grasshopper para seguir parametrizando.', 'trazo_rhino.py', async () => { const r = await fetch('rhino/trazo_rhino.py'); download(await r.text(), 'trazo_rhino.py', 'text/x-python'); })),
       card('Fabricación',
-        item('Corte CNC / láser (.dxf)', 'Piezas anidadas por tablero en capas CORTE_EXTERIOR / CORTE_INTERIOR / ETIQUETAS, en mm.', 'DXF de corte', () => download(nestingDxf(analyse(parts(), store.method, store.material, store.project).nest), `${name()}-corte.dxf`, 'application/dxf')),
+        item('Corte CNC / láser (.dxf)', 'Piezas anidadas por tablero en capas CORTE_EXTERIOR / CORTE_INTERIOR / ETIQUETAS, en mm.', 'DXF de corte', () => download(nestingDxf(analyse(parts(), store.method, store.material, store.project, store.project.fab.materials).nest), `${name()}-corte.dxf`, 'application/dxf')),
         item('Planos técnicos (.svg)', 'Lámina A3 con vistas, cotas y despiece. Importable en Rhino, Illustrator o Morpholio.', 'SVG', () => download(technicalDrawing(store.project, parts()), `${name()}-planos.svg`, 'image/svg+xml')),
         item('Boceto vectorizado (.dxf)', 'Las líneas limpias de tu boceto, a escala real.', 'DXF boceto', () => download(sketchDxf(store.project.sketch), `${name()}-boceto.dxf`, 'application/dxf')),
         item('Impresión 3D (.stl)', 'Malla del conjunto para maqueta a escala o piezas impresas.', 'STL', () => download(toSTL(parts(), mats()).buffer as ArrayBuffer, `${name()}.stl`, 'model/stl')))),

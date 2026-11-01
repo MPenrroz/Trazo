@@ -36,7 +36,11 @@ export function newProject(name = 'Nuevo producto'): Project {
 /** Rellena campos que falten en proyectos antiguos/importados. */
 export function normalize(p: Partial<Project>): Project {
   const base = newProject(p.name);
-  return { ...base, ...p, sketch: { ...base.sketch, ...(p.sketch ?? {}) }, pricing: { ...base.pricing, ...(p.pricing ?? {}) }, fab: { ...base.fab, ...(p.fab ?? {}) } } as Project;
+  const fab = { ...base.fab, ...(p.fab ?? {}) };
+  // agrega materiales/métodos nuevos del catálogo a proyectos antiguos
+  fab.materials = [...fab.materials, ...base.fab.materials.filter((m) => !fab.materials.some((x) => x.id === m.id))];
+  fab.methods = [...fab.methods, ...base.fab.methods.filter((m) => !fab.methods.some((x) => x.id === m.id))];
+  return { ...base, ...p, sketch: { ...base.sketch, ...(p.sketch ?? {}) }, pricing: { ...base.pricing, ...(p.pricing ?? {}) }, fab } as Project;
 }
 
 type Listener = (p: Project, reason: string) => void;
@@ -46,18 +50,39 @@ class Store {
   private listeners = new Set<Listener>();
   private saveTimer = 0;
 
-  async init() {
-    const id = localStorage.getItem(CURRENT);
-    const all = await this.list().catch(() => []);
+  /** false cuando el navegador no permite IndexedDB (modo privado, iframes): se trabaja solo en memoria. */
+  persist = true;
+
+  /**
+   * @param seed proyecto de ejemplo que se carga si aún no existe en este dispositivo (p. ej. una demo publicada).
+   * @returns true si se cargó la semilla.
+   */
+  async init(seed?: () => Promise<Partial<Project> | null>): Promise<boolean> {
+    let all: Project[] = [];
+    try { all = await this.list(); } catch { this.persist = false; }
+    const sp = seed ? await seed().catch(() => null) : null;
+    if (sp?.id && !all.some((p) => p.id === sp.id)) {
+      this.project = normalize(sp);
+      await this.save().catch(() => { this.persist = false; });
+      return true;
+    }
+    let id: string | null = null;
+    try { id = localStorage.getItem(CURRENT); } catch { /* sin storage */ }
     const found = all.find((p) => p.id === id) ?? all.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (found) this.project = normalize(found);
-    else await this.save();
+    else await this.save().catch(() => { this.persist = false; });
+    return false;
   }
-  list(): Promise<Project[]> { return tx('readonly', (s) => s.getAll() as IDBRequest<Project[]>); }
-  async open(id: string) { const p = await tx('readonly', (s) => s.get(id) as IDBRequest<Project>); if (p) { this.project = normalize(p); localStorage.setItem(CURRENT, p.id); this.emit('open'); } }
-  async create(p = newProject()) { this.project = p; await this.save(); this.emit('open'); }
-  async remove(id: string) { await tx('readwrite', (s) => s.delete(id)); }
-  async save() { this.project.updatedAt = Date.now(); localStorage.setItem(CURRENT, this.project.id); await tx('readwrite', (s) => s.put(structuredClone(this.project))); }
+  async list(): Promise<Project[]> { if (!this.persist) return [this.project]; return tx('readonly', (s) => s.getAll() as IDBRequest<Project[]>); }
+  async open(id: string) { if (!this.persist) return; const p = await tx('readonly', (s) => s.get(id) as IDBRequest<Project>); if (p) { this.project = normalize(p); try { localStorage.setItem(CURRENT, p.id); } catch { /* */ } this.emit('open'); } }
+  async create(p = newProject()) { this.project = p; await this.save().catch(() => 0); this.emit('open'); }
+  async remove(id: string) { if (this.persist) await tx('readwrite', (s) => s.delete(id)); }
+  async save() {
+    this.project.updatedAt = Date.now();
+    if (!this.persist) return;
+    try { localStorage.setItem(CURRENT, this.project.id); } catch { /* */ }
+    await tx('readwrite', (s) => s.put(structuredClone(this.project)));
+  }
 
   /** Modifica el proyecto, notifica y guarda (con debounce). */
   update(fn: (p: Project) => void, reason = 'edit') {

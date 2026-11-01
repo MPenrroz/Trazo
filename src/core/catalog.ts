@@ -4,9 +4,12 @@ import type { FabMethod, Material } from './types';
 export const DEFAULT_MATERIALS: Material[] = [
   { id: 'plywood-abedul', name: 'Contrachapado abedul', thicknesses: [9, 12, 15, 18, 21, 24], pricePerSheet: 95000, sheet: [2440, 1220], color: '#e2c89a', density: 680, maxSpanRatio: 45 },
   { id: 'osb', name: 'OSB estructural', thicknesses: [9, 11, 15, 18], pricePerSheet: 28000, sheet: [2440, 1220], color: '#c9a66b', density: 620, maxSpanRatio: 35 },
+  { id: 'mdf-laca', name: 'MDF laqueado blanco', thicknesses: [15, 18, 25], pricePerSheet: 78000, sheet: [2440, 1830], color: '#efe9de', density: 750, maxSpanRatio: 32 },
   { id: 'mdf', name: 'MDF', thicknesses: [9, 12, 15, 18, 25], pricePerSheet: 32000, sheet: [2440, 1830], color: '#b9a48a', density: 750, maxSpanRatio: 32 },
   { id: 'pino', name: 'Terciado pino', thicknesses: [9, 12, 15, 18], pricePerSheet: 38000, sheet: [2440, 1220], color: '#e8d3a8', density: 520, maxSpanRatio: 38 },
   { id: 'acrilico', name: 'Acrílico', thicknesses: [3, 4, 5, 6, 8, 10], pricePerSheet: 70000, sheet: [1800, 1200], color: '#cfe8f3', density: 1190, maxSpanRatio: 25 },
+  // Tapiz: se cotiza por m² (pricePerSheet = precio por un "paño" de sheet[0]×sheet[1] mm). No se anida en CNC.
+  { id: 'tapiz', name: 'Tapiz (espuma 40 mm + tela)', thicknesses: [30, 40, 50], pricePerSheet: 42000, sheet: [1000, 1000], color: '#56666f', density: 35, maxSpanRatio: 999 },
   { id: 'aluminio', name: 'Aluminio 5052', thicknesses: [2, 3, 4, 5, 6], pricePerSheet: 180000, sheet: [2440, 1220], color: '#c7ccd1', density: 2680, maxSpanRatio: 80 },
 ];
 

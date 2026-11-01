@@ -19,6 +19,8 @@ export interface Part {
   material: string;
   /** Rol en el producto (lateral, repisa, cubierta…) para agrupar en despiece y capas de Rhino. */
   role: string;
+  /** Proceso: 'cnc' (por defecto, se anida y corta) o 'tapiz' (espuma/tela, se cotiza por m², no se corta en CNC). */
+  process?: 'cnc' | 'tapiz';
 }
 
 export type ParamType = 'number' | 'int' | 'bool' | 'choice';

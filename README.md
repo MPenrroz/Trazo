@@ -36,6 +36,7 @@ Todo se guarda localmente en el navegador (IndexedDB), con múltiples proyectos 
 
 - **Estantería / librero** — ancho, alto, profundidad, repisas, módulos, fondo, zócalo, espesor.
 - **Mesa de placas** — largo, ancho, alto, retiro de patas, travesaño, espesor.
+- **Nicho de lectura** — caja con corte semicircular en los costados, asiento curvo de listones fresados con cojín tapizado (cotizado por m², fuera del anidado CNC) y librero lateral opcional.
 - **Costillas desde boceto** — tu perfil dibujado a mano repetido N veces (bancos, biombos, lámparas, revestimientos); con 1 costilla es una pieza plana única.
 
 Agregar una tipología = una función `build(valores) → piezas` en `src/core/templates.ts` (y su espejo en
@@ -56,7 +57,9 @@ lo que entiende un CNC.
 2. Súbelo a `public/productos/` del repo (desde el iPad: github.com → Add file → Upload).
 3. Comparte `https://<usuario>.github.io/Trazo/#/tienda?producto=mi-producto` (modo público, sin herramientas de diseño).
 
-Ejemplos: `#/tienda?producto=estanteria-demo`, `#/tienda?producto=banco-costillas-demo`.
+Ejemplos: `#/tienda?producto=estanteria-demo`, `#/tienda?producto=banco-costillas-demo`, `#/tienda?producto=nicho-lectura`.
+
+Para publicar una demo que abra directo en un proyecto: `VITE_SEED=<nombre> npm run build` precarga `productos/<nombre>.trazo.json` la primera vez que se abre (generado con `DEMO_OUT=… REF_IMG=… npx vite-node scripts/make-demo.ts`).
 
 ## Desarrollo
 

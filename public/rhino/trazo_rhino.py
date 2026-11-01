@@ -118,7 +118,63 @@ def build_costillas(v, mat, profile=None):
     return P
 
 
-TEMPLATES = {"estanteria": build_estanteria, "mesa": build_mesa, "costillas": build_costillas}
+def build_nicho(v, mat, profile=None):
+    T, H, D, P = float(v["t"]), float(v["h"]), float(v["d"]), float(v["plinth"])
+    libr, cojin = bool(v["libr"]), bool(v["cojin"])
+    wb = float(v["wb"]) if libr else 0.0
+    n = max(4, int(round(float(v["list"]))))
+    ts, foam, margin = T, 40.0, 80.0
+    Hb = H - P
+    R = min(float(v["ws"]) / 2.0, Hb - T - ts - 30)
+    Ls = 2 * R + 2 * margin
+    L = T + Ls + T + (wb if libr else 0)
+    cx = T + Ls / 2.0
+    arc = [(cx + R * math.cos(-math.pi * i / 36.0), Hb + R * math.sin(-math.pi * i / 36.0)) for i in range(37)]
+    prof = [(0, 0), (L, 0), (L, Hb)] + arc + [(0, Hb)]
+
+    def side(pid, name, y):
+        return dict(id=pid, name=name, role="Costado", material=mat, thickness=T,
+                    plane=dict(o=(0, y, P), x=(1, 0, 0), y=(0, 0, 1)), profile=prof)
+
+    P_ = [side("costado-frente", "Costado frontal", T), side("costado-tras", "Costado trasero", D)]
+    yi, di = T, D - 2 * T
+    P_.append(box_part("cabezal", "Cabezal izquierdo", "Cabezal", mat, (0, yi, P), (T, di, Hb), "x"))
+    P_.append(box_part("base", "Base", "Base", mat, (T, yi, P), (L - T - (0 if libr else T), di, T), "z"))
+    if libr:
+        x0 = T + Ls
+        P_.append(box_part("division", "División librero", "División", mat, (x0, yi, P + T), (T, di, Hb - T), "x"))
+        P_.append(box_part("techo-libr", "Techo librero", "Cubierta", mat, (x0 + T, yi, H - T), (wb, di, T), "z"))
+        zr = P + T + (Hb - 2 * T) / 2.0 - T / 2.0
+        P_.append(box_part("repisa-libr", "Repisa librero", "Repisa", mat, (x0 + T, yi, zr), (wb, di, T), "z"))
+    else:
+        P_.append(box_part("cabezal-der", "Cabezal derecho", "Cabezal", mat, (L - T, yi, P), (T, di, Hb), "x"))
+    if P > 0:
+        r = 40.0
+        P_.append(box_part("zoc-frente", "Zócalo frontal", "Zócalo", mat, (r, r, 0), (L - 2 * r, T, P), "y"))
+        P_.append(box_part("zoc-tras", "Zócalo trasero", "Zócalo", mat, (r, D - r - T, 0), (L - 2 * r, T, P), "y"))
+        P_.append(box_part("zoc-izq", "Zócalo izquierdo", "Zócalo", mat, (r, r + T, 0), (T, D - 2 * r - 2 * T, P), "x"))
+        P_.append(box_part("zoc-der", "Zócalo derecho", "Zócalo", mat, (L - r - T, r + T, 0), (T, D - 2 * r - 2 * T, P), "x"))
+
+    def facets(rad, prefix, name, role, material, thick, process=None):
+        for i in range(n):
+            a0, a1 = math.pi + math.pi * i / n, math.pi + math.pi * (i + 1) / n
+            A = (cx + rad * math.cos(a0), H + rad * math.sin(a0))
+            B = (cx + rad * math.cos(a1), H + rad * math.sin(a1))
+            w = math.hypot(B[0] - A[0], B[1] - A[1])
+            part = dict(id="%s-%d" % (prefix, i + 1), name="%s %d" % (name, i + 1), role=role, material=material,
+                        thickness=thick, plane=dict(o=(A[0], yi, A[1]), x=(0, 1, 0), y=((B[0] - A[0]) / w, 0, (B[1] - A[1]) / w)),
+                        profile=rect(di, w))
+            if process:
+                part["process"] = process
+            P_.append(part)
+
+    facets(R, "liston", "Listón", "Listón asiento", mat, ts)
+    if cojin:
+        facets(R - foam, "cojin", "Cojín", "Cojín", "tapiz", foam, "tapiz")
+    return P_
+
+
+TEMPLATES = {"estanteria": build_estanteria, "mesa": build_mesa, "costillas": build_costillas, "nicho": build_nicho}
 
 
 # --------------------------------------------------------------------------- parámetros

@@ -7,7 +7,7 @@ import { modelView } from './views/model';
 import { plansView } from './views/plans';
 import { shopView } from './views/shop';
 import { sketchView } from './views/sketch';
-import { h, pickFiles, toast } from './ui';
+import { confirmDialog, h, pickFiles, toast } from './ui';
 
 type ViewFn = (root: HTMLElement, q: URLSearchParams) => void | (() => void);
 const ROUTES: { id: string; label: string; n: string; view: ViewFn }[] = [
@@ -50,7 +50,7 @@ const menuItems = h('div', { class: 'menu-items' },
     await store.save(); await store.create(copy); await refreshProjects(); route();
   } }, 'Duplicar'),
   h('button', { class: 'ghost danger', onclick: async () => {
-    if (!confirm(`¿Eliminar "${store.project.name}"?`)) return;
+    if (!(await confirmDialog(`¿Eliminar "${store.project.name}"? No se puede deshacer.`))) return;
     await store.remove(store.project.id);
     const rest = await store.list();
     if (rest.length) await store.open(rest[0].id); else await store.create(newProject());
@@ -76,7 +76,12 @@ async function start() {
   app.append(h('header', { class: 'top' },
     h('a', { class: 'brand', href: '#/concepto' }, h('img', { src: 'icon.svg', alt: '' }), h('b', null, 'Trazo')),
     nav, h('div', { class: 'proj' }, projSel, menu)), content);
-  try { await store.init(); } catch (e) { console.error(e); toast('Almacenamiento local no disponible: los cambios no se guardarán', 'err'); }
+  // VITE_SEED=<nombre> precarga public/productos/<nombre>.trazo.json la primera vez (demos publicadas)
+  const seedName = import.meta.env.VITE_SEED as string | undefined;
+  const seed = seedName ? () => fetch(`productos/${seedName}.trazo.json`).then((r) => (r.ok ? r.json() : null)) : undefined;
+  const seeded = await store.init(seed).catch((e) => { console.error(e); return false; });
+  if (!store.persist) toast('Este navegador no permite guardar: los cambios duran solo esta sesión', 'err');
+  if (seeded && !location.hash) location.hash = '#/modelo';
   await refreshProjects().catch(() => 0);
   let last = '';
   window.addEventListener('hashchange', () => {

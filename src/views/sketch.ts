@@ -4,7 +4,7 @@ import { download, slug } from '../export/download';
 import { sketchDxf } from '../export/dxf';
 import { SketchEditor, type Tool } from '../sketch/editor';
 import { profileFromSketch } from '../sketch/fit';
-import { h, pickFiles, readImage, toast } from '../ui';
+import { ask, confirmDialog, h, pickFiles, readImage, toast } from '../ui';
 
 const TOOLS: { id: Tool; label: string; icon: string; tip: string }[] = [
   { id: 'smart', label: 'Tinta inteligente', icon: '✎', tip: 'Convierte trazos en líneas rectas, rectángulos, círculos o curvas limpias.' },
@@ -28,7 +28,7 @@ export function sketchView(root: HTMLElement) {
       updateStatus();
     },
     askScale: async (px) => {
-      const v = prompt(`Largo real de la línea dibujada (${round(px, 0)} px) en mm:`, '1000');
+      const v = await ask(`Largo real de la línea dibujada (${round(px, 0)} px), en mm:`, '1000');
       return v ? Number(v.replace(',', '.')) : null;
     },
   });
@@ -96,7 +96,7 @@ export function sketchView(root: HTMLElement) {
         h('div', { class: 'row wrap' },
           h('button', { class: 'ghost', onclick: () => download(editor.toSVG(), `${slug(store.project.name)}-boceto.svg`, 'image/svg+xml') }, 'SVG'),
           h('button', { class: 'ghost', onclick: () => download(sketchDxf(store.project.sketch), `${slug(store.project.name)}-boceto.dxf`, 'application/dxf') }, 'DXF (mm)')),
-        h('button', { class: 'ghost danger', onclick: () => { if (confirm('¿Borrar todos los trazos?')) editor.clear(); } }, 'Limpiar lienzo'))),
+        h('button', { class: 'ghost danger', onclick: async () => { if (await confirmDialog('¿Borrar todos los trazos del lienzo?', 'Borrar')) editor.clear(); } }, 'Limpiar lienzo'))),
     status));
   requestAnimationFrame(() => editor.fit());
   return () => { editor.destroy(); document.removeEventListener('paste', onPaste); };

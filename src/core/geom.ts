@@ -42,16 +42,28 @@ export const ccw = (pts: V2[]) => (polyArea(pts) < 0 ? [...pts].reverse() : pts)
 /** Rectángulo local [0,w]×[0,h]. */
 export const rect = (w: number, h: number): V2[] => [[0, 0], [w, 0], [w, h], [0, h]];
 
-/** Vértices cóncavos (interiores) de un polígono CCW: requieren dogbone o radio en CNC. */
-export function reflexVertices(pts: V2[]): number[] {
+/**
+ * Vértices cóncavos (interiores) de un polígono CCW: requieren dogbone o radio en CNC.
+ * `minTurnDeg` ignora los quiebres suaves (p. ej. los segmentos de un arco), que la fresa sigue sin problema.
+ */
+export function reflexVertices(pts: V2[], minTurnDeg = 0): number[] {
   const p = ccw(pts);
   const out: number[] = [];
   for (let i = 0; i < p.length; i++) {
     const a = p[(i - 1 + p.length) % p.length], b = p[i], c = p[(i + 1) % p.length];
     const cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    if (cr < -1e-6) out.push(i);
+    if (cr >= -1e-6) continue;
+    const t1 = Math.atan2(b[1] - a[1], b[0] - a[0]), t2 = Math.atan2(c[1] - b[1], c[0] - b[0]);
+    let turn = Math.abs(t2 - t1) * 180 / Math.PI;
+    if (turn > 180) turn = 360 - turn;
+    if (turn >= minTurnDeg) out.push(i);
   }
   return out;
+}
+
+/** Puntos de un arco de circunferencia (ángulos en radianes, incluye extremos). */
+export function arc(cx: number, cy: number, r: number, a0: number, a1: number, n: number): V2[] {
+  return Array.from({ length: n + 1 }, (_, i) => { const a = a0 + ((a1 - a0) * i) / n; return [cx + r * Math.cos(a), cy + r * Math.sin(a)] as V2; });
 }
 
 const X: V3 = [1, 0, 0], Y: V3 = [0, 1, 0], Z: V3 = [0, 0, 1];

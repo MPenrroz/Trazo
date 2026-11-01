@@ -207,3 +207,15 @@ legend { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; colo
 .menu-items { position: absolute; right: 0; top: calc(100% + 6px); background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 170px; box-shadow: 0 10px 30px rgba(0,0,0,.12); z-index: 30; }
 .menu-items button { border: 0; text-align: left; justify-content: flex-start; }
 select.inline { width: auto; min-height: 36px; padding: 4px 8px; }
+@media (max-width: 760px) {
+  /* en teléfono la lámina A3 se recorre con scroll horizontal en vez de quedar ilegible */
+  .sheet-wrap { padding: 8px; }
+  .sheet-wrap svg { min-width: 1000px; }
+}
+
+/* Diálogos */
+.dlg-back { position: fixed; inset: 0; background: rgba(20,24,26,.35); display: grid; place-items: center; z-index: 200; padding: 16px; }
+.dlg { background: var(--panel); border-radius: 16px; padding: 18px; width: min(420px, 100%); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+.dlg p { margin: 0; font-weight: 600; line-height: 1.4; }
+.row.end { justify-content: flex-end; }
+button.danger-solid { background: var(--err); border-color: var(--err); }

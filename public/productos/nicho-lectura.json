@@ -1,0 +1,388 @@
+{
+  "format": "trazo-spec@1",
+  "id": "nicho-lectura",
+  "name": "Nicho de Lectura",
+  "description": "Asiento infantil envolvente tallado en una caja lacada, con cojín curvo tapizado y librero lateral para tener los cuentos a mano.",
+  "functions": [
+    "Asiento curvo de listones fresados, cubierto por cojín de espuma 40 mm",
+    "Librero lateral abierto con repisa intermedia",
+    "Zócalo retranqueado: la caja parece flotar",
+    "Medidas a escala infantil, configurables"
+  ],
+  "template": "nicho",
+  "params": [
+    {
+      "key": "ws",
+      "label": "Diámetro del asiento",
+      "type": "number",
+      "unit": "mm",
+      "min": 600,
+      "max": 900,
+      "step": 10,
+      "default": 760,
+      "group": "Dimensiones",
+      "exposed": true,
+      "help": "Ancho del corte semicircular."
+    },
+    {
+      "key": "h",
+      "label": "Alto",
+      "type": "number",
+      "unit": "mm",
+      "min": 480,
+      "max": 650,
+      "step": 10,
+      "default": 560,
+      "group": "Dimensiones",
+      "exposed": true
+    },
+    {
+      "key": "d",
+      "label": "Profundidad",
+      "type": "number",
+      "unit": "mm",
+      "min": 420,
+      "max": 560,
+      "step": 10,
+      "default": 480,
+      "group": "Dimensiones",
+      "exposed": true
+    },
+    {
+      "key": "libr",
+      "label": "Librero lateral",
+      "type": "bool",
+      "default": true,
+      "group": "Configuración",
+      "exposed": true
+    },
+    {
+      "key": "wb",
+      "label": "Ancho librero",
+      "type": "number",
+      "unit": "mm",
+      "min": 200,
+      "max": 450,
+      "step": 10,
+      "default": 280,
+      "group": "Configuración",
+      "exposed": true
+    },
+    {
+      "key": "cojin",
+      "label": "Cojín tapizado",
+      "type": "bool",
+      "default": true,
+      "group": "Configuración",
+      "exposed": true
+    },
+    {
+      "key": "list",
+      "label": "Listones del asiento",
+      "type": "int",
+      "min": 8,
+      "max": 30,
+      "step": 1,
+      "default": 16,
+      "group": "Fabricación",
+      "exposed": false
+    },
+    {
+      "key": "plinth",
+      "label": "Zócalo retranqueado",
+      "type": "number",
+      "unit": "mm",
+      "min": 0,
+      "max": 100,
+      "step": 5,
+      "default": 50,
+      "group": "Fabricación",
+      "exposed": false
+    },
+    {
+      "key": "t",
+      "label": "Espesor tablero",
+      "type": "choice",
+      "unit": "mm",
+      "default": 18,
+      "group": "Material",
+      "exposed": false,
+      "options": [
+        {
+          "value": 9,
+          "label": "9 mm"
+        },
+        {
+          "value": 12,
+          "label": "12 mm"
+        },
+        {
+          "value": 15,
+          "label": "15 mm"
+        },
+        {
+          "value": 18,
+          "label": "18 mm"
+        },
+        {
+          "value": 21,
+          "label": "21 mm"
+        },
+        {
+          "value": 24,
+          "label": "24 mm"
+        }
+      ]
+    }
+  ],
+  "defaults": {
+    "ws": 760,
+    "h": 560,
+    "d": 480,
+    "libr": true,
+    "wb": 280,
+    "cojin": true,
+    "list": 16,
+    "plinth": 50,
+    "t": 18
+  },
+  "materialId": "mdf-laca",
+  "methodId": "cnc3",
+  "pricing": {
+    "margin": 70,
+    "base": 35000,
+    "currency": "CLP"
+  },
+  "fab": {
+    "methods": [
+      {
+        "id": "cnc3",
+        "name": "CNC router 3 ejes",
+        "bed": [
+          2500,
+          1250
+        ],
+        "maxThickness": 50,
+        "tool": 6,
+        "ratePerMeter": 900,
+        "setupPerSheet": 6000,
+        "notes": "Esquinas interiores necesitan dogbone (radio = Ø fresa / 2). Ideal tableros de madera."
+      },
+      {
+        "id": "laser",
+        "name": "Corte láser CO₂",
+        "bed": [
+          1300,
+          900
+        ],
+        "maxThickness": 10,
+        "tool": 0.2,
+        "ratePerMeter": 600,
+        "setupPerSheet": 3000,
+        "notes": "Kerf mínimo, permite esquinas vivas. Limitado en espesor y tamaño de cama."
+      },
+      {
+        "id": "cnc5",
+        "name": "CNC 5 ejes / robot de fresado",
+        "bed": [
+          3000,
+          1500
+        ],
+        "maxThickness": 200,
+        "tool": 10,
+        "ratePerMeter": 2200,
+        "setupPerSheet": 15000,
+        "notes": "Permite cantos biselados, doble curvatura y piezas macizas."
+      },
+      {
+        "id": "robot",
+        "name": "Celda robótica (ensamble / pick & place)",
+        "bed": [
+          2600,
+          2600
+        ],
+        "maxThickness": 60,
+        "tool": 8,
+        "ratePerMeter": 1500,
+        "setupPerSheet": 10000,
+        "notes": "Combina corte con ensamble automatizado; conviene estandarizar uniones."
+      },
+      {
+        "id": "semi",
+        "name": "Semi-automatizado (sierra escuadradora + CNC)",
+        "bed": [
+          3050,
+          1830
+        ],
+        "maxThickness": 60,
+        "tool": 4,
+        "ratePerMeter": 500,
+        "setupPerSheet": 4000,
+        "notes": "Cortes rectos en escuadradora, mecanizados en CNC. Muy económico para piezas rectangulares."
+      },
+      {
+        "id": "print3d",
+        "name": "Impresión 3D gran formato",
+        "bed": [
+          1000,
+          1000
+        ],
+        "maxThickness": 1000,
+        "tool": 1,
+        "ratePerMeter": 3000,
+        "setupPerSheet": 0,
+        "notes": "Para nodos, conectores y piezas de forma libre. Volumen limitado."
+      }
+    ],
+    "materials": [
+      {
+        "id": "plywood-abedul",
+        "name": "Contrachapado abedul",
+        "thicknesses": [
+          9,
+          12,
+          15,
+          18,
+          21,
+          24
+        ],
+        "pricePerSheet": 95000,
+        "sheet": [
+          2440,
+          1220
+        ],
+        "color": "#e2c89a",
+        "density": 680,
+        "maxSpanRatio": 45
+      },
+      {
+        "id": "osb",
+        "name": "OSB estructural",
+        "thicknesses": [
+          9,
+          11,
+          15,
+          18
+        ],
+        "pricePerSheet": 28000,
+        "sheet": [
+          2440,
+          1220
+        ],
+        "color": "#c9a66b",
+        "density": 620,
+        "maxSpanRatio": 35
+      },
+      {
+        "id": "mdf-laca",
+        "name": "MDF laqueado blanco",
+        "thicknesses": [
+          15,
+          18,
+          25
+        ],
+        "pricePerSheet": 78000,
+        "sheet": [
+          2440,
+          1830
+        ],
+        "color": "#efe9de",
+        "density": 750,
+        "maxSpanRatio": 32
+      },
+      {
+        "id": "mdf",
+        "name": "MDF",
+        "thicknesses": [
+          9,
+          12,
+          15,
+          18,
+          25
+        ],
+        "pricePerSheet": 32000,
+        "sheet": [
+          2440,
+          1830
+        ],
+        "color": "#b9a48a",
+        "density": 750,
+        "maxSpanRatio": 32
+      },
+      {
+        "id": "pino",
+        "name": "Terciado pino",
+        "thicknesses": [
+          9,
+          12,
+          15,
+          18
+        ],
+        "pricePerSheet": 38000,
+        "sheet": [
+          2440,
+          1220
+        ],
+        "color": "#e8d3a8",
+        "density": 520,
+        "maxSpanRatio": 38
+      },
+      {
+        "id": "acrilico",
+        "name": "Acrílico",
+        "thicknesses": [
+          3,
+          4,
+          5,
+          6,
+          8,
+          10
+        ],
+        "pricePerSheet": 70000,
+        "sheet": [
+          1800,
+          1200
+        ],
+        "color": "#cfe8f3",
+        "density": 1190,
+        "maxSpanRatio": 25
+      },
+      {
+        "id": "tapiz",
+        "name": "Tapiz (espuma 40 mm + tela)",
+        "thicknesses": [
+          30,
+          40,
+          50
+        ],
+        "pricePerSheet": 42000,
+        "sheet": [
+          1000,
+          1000
+        ],
+        "color": "#56666f",
+        "density": 35,
+        "maxSpanRatio": 999
+      },
+      {
+        "id": "aluminio",
+        "name": "Aluminio 5052",
+        "thicknesses": [
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "pricePerSheet": 180000,
+        "sheet": [
+          2440,
+          1220
+        ],
+        "color": "#c7ccd1",
+        "density": 2680,
+        "maxSpanRatio": 80
+      }
+    ]
+  }
+}

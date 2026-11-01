@@ -1,4 +1,4 @@
-import { boxPart, bounds2, ccw } from './geom';
+import { arc, boxPart, bounds2, ccw } from './geom';
 import type { ParamDef, ParamValues, Part, V2 } from './types';
 
 export interface TemplateCtx { material: string; profile?: V2[] }
@@ -140,5 +140,83 @@ const ribs: Template = {
   },
 };
 
-export const TEMPLATES: Template[] = [shelf, table, ribs];
+/**
+ * Nicho de lectura / sofá infantil: caja de tableros con corte semicircular en los costados largos,
+ * asiento curvo de listones (fresados del mismo tablero) con cojín tapizado y librero lateral abierto.
+ * Ejes: X = largo, Y = profundidad (frente en Y=0), Z = alto.
+ */
+const nook: Template = {
+  id: 'nicho',
+  name: 'Nicho de lectura (asiento curvo + librero)',
+  description: 'Caja con corte semicircular en los costados, asiento de listones curvados con cojín y librero lateral abierto.',
+  usesProfile: false,
+  params: [
+    { key: 'ws', label: 'Diámetro del asiento', type: 'number', unit: 'mm', min: 500, max: 1100, step: 10, default: 760, group: 'Dimensiones', exposed: true, help: 'Ancho del corte semicircular.' },
+    { key: 'h', label: 'Alto', type: 'number', unit: 'mm', min: 420, max: 750, step: 10, default: 560, group: 'Dimensiones', exposed: true },
+    { key: 'd', label: 'Profundidad', type: 'number', unit: 'mm', min: 380, max: 650, step: 10, default: 480, group: 'Dimensiones', exposed: true },
+    { key: 'libr', label: 'Librero lateral', type: 'bool', default: true, group: 'Configuración', exposed: true },
+    { key: 'wb', label: 'Ancho librero', type: 'number', unit: 'mm', min: 200, max: 450, step: 10, default: 280, group: 'Configuración', exposed: true },
+    { key: 'cojin', label: 'Cojín tapizado', type: 'bool', default: true, group: 'Configuración', exposed: true },
+    { key: 'list', label: 'Listones del asiento', type: 'int', min: 8, max: 30, step: 1, default: 16, group: 'Fabricación', exposed: false },
+    { key: 'plinth', label: 'Zócalo retranqueado', type: 'number', unit: 'mm', min: 0, max: 100, step: 5, default: 50, group: 'Fabricación', exposed: false },
+    thicknessParam(18),
+  ],
+  build(v, { material }) {
+    const T = num(v, 't'), H = num(v, 'h'), D = num(v, 'd'), P = num(v, 'plinth');
+    const libr = !!v.libr, wb = libr ? num(v, 'wb') : 0, cojin = !!v.cojin;
+    const n = Math.max(4, Math.round(num(v, 'list')));
+    const ts = T, foam = 40, margin = 80; // listones del mismo tablero, espuma 40 mm, ala a cada lado del corte
+    const Hb = H - P;
+    // el corte no puede atravesar la base: radio máximo según el alto disponible
+    const R = Math.min(num(v, 'ws') / 2, Hb - T - ts - 30);
+    const Ls = 2 * R + 2 * margin; // largo interior de la zona de asiento
+    const L = T + Ls + T + (libr ? wb : 0);
+    const cx = T + Ls / 2;
+    const parts: Part[] = [];
+
+    // Costados largos (frente y trasera): rectángulo con corte semicircular desde arriba
+    const prof: V2[] = [[0, 0], [L, 0], [L, Hb], ...arc(cx, Hb, R, 0, -Math.PI, 36), [0, Hb]];
+    const side = (id: string, name: string, y: number): Part => ({ id, name, role: 'Costado', material, thickness: T,
+      plane: { o: [0, y, P], x: [1, 0, 0], y: [0, 0, 1] }, profile: prof }); // normal −Y
+    parts.push(side('costado-frente', 'Costado frontal', T), side('costado-tras', 'Costado trasero', D));
+
+    const yi = T, di = D - 2 * T; // interior entre costados
+    parts.push(boxPart('cabezal', 'Cabezal izquierdo', 'Cabezal', material, [0, yi, P], [T, di, Hb], 'x'));
+    parts.push(boxPart('base', 'Base', 'Base', material, [T, yi, P], [L - T - (libr ? 0 : T), di, T], 'z'));
+    if (libr) {
+      const x0 = T + Ls;
+      parts.push(boxPart('division', 'División librero', 'División', material, [x0, yi, P + T], [T, di, Hb - T], 'x'));
+      parts.push(boxPart('techo-libr', 'Techo librero', 'Cubierta', material, [x0 + T, yi, H - T], [wb, di, T], 'z'));
+      const zr = P + T + (Hb - 2 * T) / 2 - T / 2;
+      parts.push(boxPart('repisa-libr', 'Repisa librero', 'Repisa', material, [x0 + T, yi, zr], [wb, di, T], 'z'));
+    } else {
+      parts.push(boxPart('cabezal-der', 'Cabezal derecho', 'Cabezal', material, [L - T, yi, P], [T, di, Hb], 'x'));
+    }
+    if (P > 0) {
+      const r = 40; // retranqueo del zócalo
+      parts.push(boxPart('zoc-frente', 'Zócalo frontal', 'Zócalo', material, [r, r, 0], [L - 2 * r, T, P], 'y'));
+      parts.push(boxPart('zoc-tras', 'Zócalo trasero', 'Zócalo', material, [r, D - r - T, 0], [L - 2 * r, T, P], 'y'));
+      parts.push(boxPart('zoc-izq', 'Zócalo izquierdo', 'Zócalo', material, [r, r + T, 0], [T, D - 2 * r - 2 * T, P], 'x'));
+      parts.push(boxPart('zoc-der', 'Zócalo derecho', 'Zócalo', material, [L - r - T, r + T, 0], [T, D - 2 * r - 2 * T, P], 'x'));
+    }
+
+    // Asiento: facetas siguiendo el arco (normal hacia afuera del centro). Listones por fuera del radio R, cojín por dentro.
+    const zc = H; // centro del arco en el borde superior
+    const facets = (r: number, k: number, fn: (i: number, o: [number, number, number], dir: [number, number, number], w: number) => void) => {
+      for (let i = 0; i < k; i++) {
+        const a0 = Math.PI + (Math.PI * i) / k, a1 = Math.PI + (Math.PI * (i + 1)) / k;
+        const A: V2 = [cx + r * Math.cos(a0), zc + r * Math.sin(a0)], B: V2 = [cx + r * Math.cos(a1), zc + r * Math.sin(a1)];
+        const w = Math.hypot(B[0] - A[0], B[1] - A[1]);
+        fn(i, [A[0], yi, A[1]], [(B[0] - A[0]) / w, 0, (B[1] - A[1]) / w], w);
+      }
+    };
+    facets(R, n, (i, o, dir, w) => parts.push({ id: `liston-${i + 1}`, name: `Listón ${i + 1}`, role: 'Listón asiento', material, thickness: ts,
+      plane: { o, x: [0, 1, 0], y: dir }, profile: [[0, 0], [di, 0], [di, w], [0, w]] }));
+    if (cojin) facets(R - foam, n, (i, o, dir, w) => parts.push({ id: `cojin-${i + 1}`, name: `Cojín ${i + 1}`, role: 'Cojín', material: 'tapiz', process: 'tapiz', thickness: foam,
+      plane: { o, x: [0, 1, 0], y: dir }, profile: [[0, 0], [di, 0], [di, w], [0, w]] }));
+    return parts;
+  },
+};
+
+export const TEMPLATES: Template[] = [shelf, table, ribs, nook];
 export const getTemplate = (id: string) => TEMPLATES.find((t) => t.id === id) ?? shelf;

@@ -99,9 +99,13 @@ export class Viewer {
   frame(parts: Part[]) {
     const b = bounds3(parts);
     const c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-    const r = Math.max(...b.size, 300);
+    // distancia para que la esfera envolvente quepa tanto en vertical como en horizontal (iPhone en vertical)
+    const rs = Math.max(Math.hypot(...b.size) / 2, 150);
+    const vf = THREE.MathUtils.degToRad(this.camera.fov) / 2;
+    const hf = Math.atan(Math.tan(vf) * this.camera.aspect);
+    const dist = (rs / Math.sin(Math.min(vf, hf))) * 1.05;
     this.controls.target.copy(c);
-    this.camera.position.copy(c).add(new THREE.Vector3(1.3, -1.7, 1.0).normalize().multiplyScalar(r * 2.0));
+    this.camera.position.copy(c).add(new THREE.Vector3(1.3, -1.7, 1.0).normalize().multiplyScalar(dist));
     this.camera.updateProjectionMatrix();
   }
 

@@ -41,7 +41,7 @@ export function shopView(root: HTMLElement, query: URLSearchParams) {
     const update = (refit = false) => {
       const parts = partsFromSpec(spec, values);
       viewer?.setParts(parts, spec.fab.materials, refit);
-      const a = analyse(parts, method, material, { pricing: spec.pricing });
+      const a = analyse(parts, method, material, { pricing: spec.pricing }, spec.fab.materials);
       priceEl.textContent = money(a.cost.price, spec.pricing.currency);
       const blocked = a.checks.some((c) => c.level === 'error');
       dimsEl.replaceChildren(h('span', null, `${a.size[0]} × ${a.size[1]} × ${a.size[2]} mm`), h('span', null, `${material.name} · ~${a.weightKg.toFixed(0)} kg`),

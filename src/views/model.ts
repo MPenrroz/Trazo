@@ -17,7 +17,7 @@ export function modelView(root: HTMLElement) {
   const refresh = (refit = false) => {
     const parts = store.parts();
     viewer?.setParts(parts, store.project.fab.materials, refit);
-    const a = analyse(parts, store.method, store.material, store.project);
+    const a = analyse(parts, store.method, store.material, store.project, store.project.fab.materials);
     const worst = a.checks.some((c) => c.level === 'error') ? 'error' : a.checks.some((c) => c.level === 'warn') ? 'warn' : 'ok';
     summary.replaceChildren(
       h('div', null, h('small', null, 'Medidas'), h('b', null, `${a.size[0]} × ${a.size[1]} × ${a.size[2]} mm`)),
@@ -40,7 +40,7 @@ export function modelView(root: HTMLElement) {
     paramsEl.replaceChildren(
       h('label', { class: 'param' }, h('span', { class: 'plabel' }, 'Material'),
         h('select', { onchange: (e: Event) => { store.update((p) => { p.materialId = (e.target as HTMLSelectElement).value; }, 'param'); refresh(); } },
-          ...mats.map((m) => h('option', { value: m.id, selected: m.id === store.project.materialId }, m.name)))),
+          ...mats.filter((m) => m.id !== 'tapiz').map((m) => h('option', { value: m.id, selected: m.id === store.project.materialId }, m.name)))),
       ...grouped(store.params).map(([g, defs]) => h('fieldset', null, h('legend', null, g),
         ...defs.map((d) => paramControl(d, vals[d.key], (v) => { store.update((p) => { p.values[d.key] = v; }, 'param'); refresh(); })))));
   };

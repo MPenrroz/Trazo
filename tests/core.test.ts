@@ -104,3 +104,34 @@ describe('fabricación', () => {
     expect(a.cost.price).toBeGreaterThan(0);
   });
 });
+
+describe('nicho de lectura', () => {
+  const v = defaults('nicho');
+  it('genera la caja con corte semicircular y librero', () => {
+    const parts = getTemplate('nicho').build(v, { material: 'mdf-laca' });
+    const b = bounds3(parts);
+    expect(b.size.map(Math.round)).toEqual([18 + 920 + 18 + 280, 480, 560]);
+    const side = parts.find((p) => p.id === 'costado-frente')!;
+    // punto más bajo del corte: alto − radio
+    const minArcZ = Math.min(...side.profile.filter(([x]) => x > 100 && x < 900).map(([, y]) => y)) + 50;
+    expect(Math.round(minArcZ)).toBe(560 - 380);
+    expect(parts.filter((p) => p.role === 'Listón asiento')).toHaveLength(16);
+  });
+  it('el cojín se cotiza como tapiz y no entra al anidado CNC', () => {
+    const parts = getTemplate('nicho').build(v, { material: 'mdf-laca' });
+    const mat = DEFAULT_MATERIALS.find((m) => m.id === 'mdf-laca')!;
+    const a = analyse(parts, DEFAULT_METHODS[0], mat, pricing, DEFAULT_MATERIALS);
+    expect(a.nest.placements.some((p) => p.part.process === 'tapiz')).toBe(false);
+    expect(a.upholsteryM2).toBeGreaterThan(0.3);
+    expect(a.cost.upholstery).toBeGreaterThan(0);
+    expect(a.checks.some((c) => c.level === 'error')).toBe(false);
+    // el arco no cuenta como esquinas interiores
+    expect(a.checks.some((c) => /Costado.*esquina/.test(c.msg))).toBe(false);
+  });
+  it('limita el radio para no atravesar la base', () => {
+    const parts = getTemplate('nicho').build({ ...v, ws: 1100, h: 420 }, { material: 'mdf-laca' });
+    const base = parts.find((p) => p.id === 'base')!;
+    const lowest = Math.min(...parts.filter((p) => p.role === 'Listón asiento').map((p) => p.plane.o[2]));
+    expect(lowest).toBeGreaterThan(base.plane.o[2] + base.thickness);
+  });
+});

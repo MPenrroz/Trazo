@@ -227,6 +227,23 @@
         "maxSpanRatio": 35
       },
       {
+        "id": "mdf-laca",
+        "name": "MDF laqueado blanco",
+        "thicknesses": [
+          15,
+          18,
+          25
+        ],
+        "pricePerSheet": 78000,
+        "sheet": [
+          2440,
+          1830
+        ],
+        "color": "#efe9de",
+        "density": 750,
+        "maxSpanRatio": 32
+      },
+      {
         "id": "mdf",
         "name": "MDF",
         "thicknesses": [
@@ -282,6 +299,23 @@
         "color": "#cfe8f3",
         "density": 1190,
         "maxSpanRatio": 25
+      },
+      {
+        "id": "tapiz",
+        "name": "Tapiz (espuma 40 mm + tela)",
+        "thicknesses": [
+          30,
+          40,
+          50
+        ],
+        "pricePerSheet": 42000,
+        "sheet": [
+          1000,
+          1000
+        ],
+        "color": "#56666f",
+        "density": 35,
+        "maxSpanRatio": 999
       },
       {
         "id": "aluminio",

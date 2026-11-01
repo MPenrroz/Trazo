@@ -16,7 +16,7 @@ export function fabView(root: HTMLElement) {
   function render() {
     const m = store.method, mat = store.material;
     const parts = store.parts();
-    const a = analyse(parts, m, mat, store.project);
+    const a = analyse(parts, m, mat, store.project, store.project.fab.materials);
     const cur = store.project.pricing.currency;
     cfg.replaceChildren(
       card('Método de fabricación',
@@ -32,7 +32,7 @@ export function fabView(root: HTMLElement) {
           numField('Setup por tablero', m.setupPerSheet, (n) => { m.setupPerSheet = n; }))),
       card('Material',
         h('select', { onchange: (e: Event) => { store.update((p) => { p.materialId = (e.target as HTMLSelectElement).value; }, 'fab'); render(); } },
-          ...store.project.fab.materials.map((x) => h('option', { value: x.id, selected: x.id === mat.id }, x.name))),
+          ...store.project.fab.materials.filter((x) => x.id !== 'tapiz').map((x) => h('option', { value: x.id, selected: x.id === mat.id }, x.name))),
         h('div', { class: 'grid2' },
           numField('Tablero X (mm)', mat.sheet[0], (n) => { mat.sheet[0] = n; }),
           numField('Tablero Y (mm)', mat.sheet[1], (n) => { mat.sheet[1] = n; }),
@@ -45,6 +45,7 @@ export function fabView(root: HTMLElement) {
         h('table', { class: 'cost' },
           h('tr', null, h('td', null, `Material (${a.nest.sheets} tablero/s × ${money(mat.pricePerSheet, cur)})`), h('td', null, money(a.cost.material, cur))),
           h('tr', null, h('td', null, `Mecanizado (${a.cutM.toFixed(1)} m + setup)`), h('td', null, money(a.cost.machining, cur))),
+          a.cost.upholstery ? h('tr', null, h('td', null, `Tapiz (${a.upholsteryM2.toFixed(2)} m² espuma + tela, +30% confección)`), h('td', null, money(a.cost.upholstery, cur))) : null,
           h('tr', null, h('td', null, 'Base (armado, embalaje)'), h('td', null, money(store.project.pricing.base, cur))),
           h('tr', { class: 'sub' }, h('td', null, 'Costo directo'), h('td', null, money(a.cost.subtotal, cur))),
           h('tr', { class: 'total' }, h('td', null, `Precio de venta (margen ${store.project.pricing.margin}%)`), h('td', null, money(a.cost.price, cur))))),
