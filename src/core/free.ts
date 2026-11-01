@@ -136,7 +136,7 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
       parts.push({
         id: n > 1 ? `${c.id}-${i + 1}` : c.id, name: n > 1 ? `${c.name} ${i + 1}` : c.name, role: c.role || c.name,
         material: kind === 'tablero' ? material : kind, thickness: t, plane: planeFor(c.orient, x, y, z, t),
-        profile: outline, holes: holes.length ? holes : undefined, process: kind === 'tablero' ? undefined : kind,
+        profile: outline, holes: holes.length ? holes : undefined, process: kind === 'tablero' ? undefined : kind, source: { comp: c.id, i },
       });
     }
   }

@@ -26,6 +26,8 @@ export interface Part {
   process?: 'cnc' | 'tapiz' | 'ref';
   /** Mecanizados de profundidad parcial (ranuras, cajeados, rebajes). */
   pockets?: Pocket[];
+  /** Pieza del diseño libre que la generó (para edición directa en el 3D). */
+  source?: { comp: string; i: number };
 }
 
 /**

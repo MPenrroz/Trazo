@@ -48,9 +48,24 @@ function thumb(shapeId: string) {
 }
 
 /** Lista de piezas del diseño libre. `changed` refresca el 3D. */
-export function piecesEditor(changed: () => void): HTMLElement {
-  const root = h('div', { class: 'free' });
-  let openId: string | null = null;
+export type PiecesEl = HTMLElement & { selectPiece(id: string | null): void };
+
+/** Lista de piezas del diseño libre. `changed` refresca el 3D; `onOpen` avisa qué ficha se abrió (para seleccionarla en 3D). */
+export function piecesEditor(changed: () => void, onOpen?: (compId: string | null) => void, initialOpen: string | null = null): PiecesEl {
+  const root = h('div', { class: 'free' }) as unknown as PiecesEl;
+  let openId: string | null = initialOpen;
+  root.selectPiece = (id) => {
+    openId = id;
+    root.querySelectorAll<HTMLDetailsElement>('details.piece').forEach((d) => {
+      const on = d.dataset.id === id;
+      if (d.open !== on) { d.dataset.silent = '1'; d.open = on; }
+      if (on) {
+        // desplaza solo el panel lateral (no la página, para no mover el visor bajo el dedo)
+        const panel = d.closest('.panel') as HTMLElement | null;
+        if (panel) panel.scrollTo({ top: Math.max(0, d.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop - 80), behavior: 'smooth' });
+      }
+    });
+  };
 
   const set = (c: Component, fn: (c: Component) => void, rerender = false) => {
     store.update((p) => { const x = design(p).components.find((y) => y.id === c.id); if (x) fn(x); }, 'free');
@@ -91,8 +106,12 @@ export function piecesEditor(changed: () => void): HTMLElement {
 
   function card(c: Component, idx: number, total: number) {
     const shapes = store.shapes;
-    const det = h('details', { class: `piece ${c.kind}`, open: openId === c.id });
-    det.addEventListener('toggle', () => { if (det.open) openId = c.id; });
+    const det = h('details', { class: `piece ${c.kind}`, open: openId === c.id, 'data-id': c.id });
+    det.addEventListener('toggle', () => {
+      const silent = det.dataset.silent; delete det.dataset.silent;
+      if (det.open) { openId = c.id; if (!silent) onOpen?.(c.id); }
+      else if (openId === c.id) { openId = null; if (!silent) onOpen?.(null); }
+    });
     const sel = <T extends string>(value: T, opts: Record<string, string>, onPick: (v: T) => void) =>
       h('select', { onchange: (e: Event) => onPick((e.target as HTMLSelectElement).value as T) }, ...Object.entries(opts).map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
     const shapeOpts: Record<string, string> = { rect: 'Rectángulo', ...Object.fromEntries(Object.entries(shapes).map(([id, s]) => [id, s.label])) };
@@ -115,6 +134,7 @@ export function piecesEditor(changed: () => void): HTMLElement {
         h('div', { class: 'grid2' }, formula(c, 'count', 'Cantidad', '1'), formula(c, 'when', 'Presente si', 'p. ej. baranda')),
         h('div', { class: 'row wrap' },
           h('button', { class: 'ghost sm', onclick: () => { store.update((p) => { design(p).components.splice(idx + 1, 0, { ...structuredClone(c), id: uid('c-'), name: `${c.name} copia` }); }, 'free'); changed(); render(); } }, 'Duplicar'),
+          c.kind !== 'ref' ? h('button', { class: 'ghost sm', title: 'Dibujar calados o cambiar la silueta en el Boceto', onclick: () => drawOnPiece(c.id) }, 'Dibujar en la pieza') : null,
           idx > 0 ? h('button', { class: 'ghost sm', onclick: () => move(-1) }, '↑') : null,
           idx < total - 1 ? h('button', { class: 'ghost sm', onclick: () => move(1) }, '↓') : null,
           h('span', { class: 'sep' }),
@@ -215,3 +235,29 @@ export function paramDefsEditor(changed: () => void): HTMLElement {
   return root;
 }
 
+
+/**
+ * "Dibujar en la pieza": abre el Boceto con la silueta de la pieza a escala. Si es un rectángulo,
+ * se crea su silueta rectangular en el boceto. Lo que se dibuje dentro se vuelve calado.
+ */
+export function drawOnPiece(compId: string) {
+  const parts = store.parts();
+  const part = parts.find((p) => p.source?.comp === compId);
+  const c = design(store.project).components.find((x) => x.id === compId);
+  if (!c || !part) return;
+  if (c.shape === 'rect' || !store.shapes[c.shape]) {
+    const b = bounds2(part.profile);
+    store.update((p) => {
+      const k = p.sketch.mmPerPx || 1;
+      const pts: V2[] = p.sketch.elements.flatMap((e) => (e.kind === 'circle' ? [e.c] : e.kind === 'dim' ? [e.a, e.b] : e.pts));
+      const ox = pts.length ? bounds2(pts).x1 + 120 : 80, oy = pts.length ? bounds2(pts).y0 : 80;
+      const w = b.w / k, hh = b.h / k, id = uid('sil-');
+      p.sketch.elements.push({ id, kind: 'poly', closed: true, pts: [[ox, oy], [ox + w, oy], [ox + w, oy + hh], [ox, oy + hh]] });
+      const comp = design(p).components.find((x) => x.id === compId)!;
+      comp.shape = id;
+      comp.holes = true;
+    }, 'free');
+  }
+  toast(`Dibuja dentro de la silueta de «${c.name}»: cada forma cerrada será un calado. También puedes redibujar el contorno.`);
+  location.hash = '#/boceto';
+}

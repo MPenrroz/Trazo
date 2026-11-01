@@ -44,6 +44,16 @@ producto con **piezas**. Cada pieza tiene:
 - **Presente si**: la pieza aparece solo si la fórmula es verdadera (p. ej. un parámetro Sí/No).
 - **Tipo**: tablero CNC, tapiz (se cotiza por m²) o referencia (la cama o el muro existente: se ve en 3D pero no se fabrica).
 
+### Edición directa en el 3D (iPad)
+
+- **Tocar** una pieza la selecciona (un dedo gira, dos dedos mueven/zoom; un toque sin arrastrar selecciona).
+- **Esferas naranjas** en los bordes: estirar o encoger. **Flechas** X (rojo) / Y (verde) / Z (azul): mover.
+- Imán a las caras de otras piezas (15 mm) y grilla de 5 mm; etiqueta con la medida mientras arrastras.
+- El arrastre se escribe en la fórmula: si la medida es un parámetro (`alto_respaldo`) cambia el parámetro — y todas
+  las piezas que lo usan —; si es un número, cambia el número; si es una fórmula, se ajusta su término final
+  (`alto_cama - 20` → `alto_cama + 30`). Respeta los rangos del arquitecto. Deshacer/rehacer en el visor.
+- Barra de la pieza: **Dibujar en la pieza** (abre su silueta en el Boceto para calar), Duplicar, Eliminar.
+
 Ejemplo cargable: *Cama nido: respaldo + baranda* (cama de 106 × 200 × 45 cm, respaldo y piecera con silueta de orejas y
 ventana calada, baranda removible con barrotes de luz ≤ 75 mm).
 

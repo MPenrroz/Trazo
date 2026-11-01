@@ -3,7 +3,12 @@ import { store } from '../core/store';
 import type { ParamDef } from '../core/types';
 import { checkList, h, money, paramControl } from '../ui';
 import { Viewer } from '../viewer';
-import { paramDefsEditor, piecesEditor } from './free-editor';
+import { drawOnPiece, paramDefsEditor, piecesEditor, type PiecesEl } from './free-editor';
+import { DirectEdit, partDims } from './direct-edit';
+import { confirmDialog, toast } from '../ui';
+import { uid } from '../core/geom';
+import type { FreeDesign } from '../core/free';
+import type { ParamValues, Part } from '../core/types';
 
 /** Paso 3 · Modelo paramétrico + visor 3D + reglas del arquitecto para la tienda. */
 export function modelView(root: HTMLElement) {
@@ -16,10 +21,32 @@ export function modelView(root: HTMLElement) {
   const free = store.template.id === 'libre';
   const piecesEl = h('div', { class: 'pieces' });
   const defsEl = h('div', { class: 'defs' });
+  let direct: DirectEdit | null = null;
+  let pieces: PiecesEl | null = null;
+  const selBar = h('div', { class: 'sel-bar', hidden: true });
+  // deshacer / rehacer de la edición en 3D y en fichas
+  const undo: { free: FreeDesign; values: ParamValues }[] = [], redo: typeof undo = [];
+  const snap = () => ({ free: structuredClone(store.project.free!), values: { ...store.project.values } });
+  const undoBtn = h('button', { class: 'ghost', title: 'Deshacer', disabled: true, onclick: () => step(undo, redo) }, '↶');
+  const redoBtn = h('button', { class: 'ghost', title: 'Rehacer', disabled: true, onclick: () => step(redo, undo) }, '↷');
+  function step(from: typeof undo, to: typeof undo) {
+    const s0 = from.pop(); if (!s0) return;
+    to.push(snap());
+    store.update((p) => { p.free = s0.free; p.values = s0.values; }, 'free');
+    afterEdit();
+  }
+  function remember() { undo.push(snap()); if (undo.length > 60) undo.shift(); redo.length = 0; }
+  function afterEdit() {
+    refresh();
+    if (!piecesEl.hidden) { pieces = piecesEditor(onFreeChange, onOpen, direct?.part?.source?.comp ?? null); piecesEl.replaceChildren(pieces); }
+    undoBtn.disabled = !undo.length; redoBtn.disabled = !redo.length;
+  }
 
   const refresh = (refit = false) => {
     const parts = store.parts();
     viewer?.setParts(parts, store.project.fab.materials, refit);
+    direct?.refresh();
+    renderSelBar(direct?.part ?? null);
     const a = analyse(parts, store.method, store.material, store.project, store.project.fab.materials);
     const worst = a.checks.some((c) => c.level === 'error') ? 'error' : a.checks.some((c) => c.level === 'warn') ? 'warn' : 'ok';
     summary.replaceChildren(
@@ -76,14 +103,40 @@ export function modelView(root: HTMLElement) {
     ? [['pieces', 'Piezas'], ['params', 'Valores'], ['defs', 'Parámetros'], ['rules', 'Precio']]
     : [['params', 'Diseño'], ['rules', 'Reglas para tienda']];
   const panes: Record<Mode, HTMLElement> = { params: paramsEl, pieces: piecesEl, defs: defsEl, rules: rulesEl };
-  const onFreeChange = () => refresh();
+  const onFreeChange = () => { refresh(); };
+  const onOpen = (compId: string | null) => { if (direct && compId !== (direct.part?.source?.comp ?? null)) { resetExplode(); direct.select(compId, false); renderSelBar(direct.part); } };
+
+  function renderSelBar(p: Part | null) {
+    selBar.hidden = !p;
+    if (!p) return;
+    const comp = p.source ? store.project.free?.components.find((c) => c.id === p.source!.comp) : undefined;
+    const copies = comp ? store.parts().filter((q) => q.source?.comp === comp.id).length : 1;
+    selBar.replaceChildren(...([
+      h('div', { class: 'sel-info' }, h('b', null, comp?.name ?? p.name), h('small', null, `${partDims(p)}${copies > 1 ? ` · ${copies} copias` : ''}`)),
+      comp && comp.kind !== 'ref' ? h('span', { class: 'sel-hint' }, 'Arrastra ● para estirar · flechas para mover') : null,
+      comp && comp.kind !== 'ref' ? h('button', { class: 'ghost sm', onclick: () => drawOnPiece(comp.id) }, 'Dibujar en la pieza') : null,
+      comp ? h('button', { class: 'ghost sm', onclick: () => {
+        remember();
+        const id = uid('c-');
+        store.update((pp) => { const arr = pp.free!.components; const i = arr.findIndex((c) => c.id === comp.id); arr.splice(i + 1, 0, { ...structuredClone(comp), id, name: `${comp.name} copia`, x: `${comp.x} + 100` }); }, 'free');
+        afterEdit(); direct?.select(id); toast('Copia creada 100 mm a la derecha');
+      } }, 'Duplicar') : null,
+      comp ? h('button', { class: 'ghost sm danger', onclick: async () => {
+        if (!(await confirmDialog(`¿Eliminar la pieza "${comp.name}"?`))) return;
+        remember();
+        store.update((pp) => { pp.free!.components = pp.free!.components.filter((c) => c.id !== comp.id); }, 'free');
+        direct?.select(null); afterEdit();
+      } }, 'Eliminar') : h('span', { class: 'muted' }, 'Para editar a mano, usa la tipología Diseño libre.'),
+      h('button', { class: 'ghost sm', title: 'Quitar selección', onclick: () => { direct?.select(null); } }, '✕')].filter(Boolean) as Node[]));
+  }
+  function resetExplode() { if (Number(explode.value)) { explode.value = '0'; viewer?.setExplode(0); } }
   const tabs = h('div', { class: `seg ${free ? 'four' : ''}` }, ...modes.map(([m, label]) => h('button', { 'data-mode': m, onclick: () => switchMode(m) }, label)));
   function switchMode(m: Mode) {
     tabs.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
     for (const [k, el] of Object.entries(panes)) el.hidden = k !== m;
     if (m === 'rules') renderRules();
     else if (m === 'params') renderParams();
-    else if (m === 'pieces') piecesEl.replaceChildren(piecesEditor(onFreeChange));
+    else if (m === 'pieces') { pieces = piecesEditor(() => { onFreeChange(); }, onOpen, direct?.part?.source?.comp ?? null); piecesEl.replaceChildren(pieces); }
     else defsEl.replaceChildren(paramDefsEditor(onFreeChange));
   }
 
@@ -97,13 +150,47 @@ export function modelView(root: HTMLElement) {
       tabs, piecesEl, paramsEl, defsEl, rulesEl),
     h('div', { class: 'main' },
       summary,
-      h('div', { class: 'viewer-wrap' }, viewerEl,
+      h('div', { class: 'viewer-wrap' }, viewerEl, selBar,
         h('div', { class: 'viewer-tools' },
+          free ? undoBtn : null, free ? redoBtn : null,
           h('label', null, 'Explotar', explode),
           h('button', { class: 'ghost', onclick: () => viewer?.frame(store.parts()) }, 'Encuadrar'))),
       checksEl)));
 
   switchMode(modes[0][0]);
-  requestAnimationFrame(() => { viewer = new Viewer(viewerEl); refresh(true); });
-  return () => viewer?.dispose();
+  let disposed = false;
+  requestAnimationFrame(() => {
+    if (disposed) return; // la vista se cerró antes del primer cuadro
+    viewer = new Viewer(viewerEl);
+    direct = new DirectEdit(viewer, viewerEl, {
+      parts: () => store.parts(),
+      design: () => (free ? store.project.free ?? null : null),
+      params: () => store.params,
+      values: () => store.values,
+      preview: (design, values) => {
+        // vista previa: se construye con el diseño temporal, sin guardar
+        const prev = { free: store.project.free, values: store.project.values };
+        store.project.free = design; store.project.values = values;
+        const parts = store.parts();
+        store.project.free = prev.free; store.project.values = prev.values;
+        viewer!.setParts(parts, store.project.fab.materials);
+        viewer!.highlight(direct!.part?.id ?? null, parts.filter((q) => q.source?.comp === direct!.part?.source?.comp).map((q) => q.id));
+      },
+      commit: (res) => {
+        remember();
+        store.update((p) => { p.free = res.design; p.values = res.values; }, 'free');
+        afterEdit();
+        if (res.notes.length) toast(res.notes.join(' · '));
+      },
+      selected: (part) => {
+        resetExplode();
+        renderSelBar(part);
+        if (free && part?.source) { if (piecesEl.hidden) switchMode('pieces'); pieces?.selectPiece(part.source.comp); }
+        else pieces?.selectPiece(null);
+      },
+    });
+    (window as unknown as { __trazoDirect?: DirectEdit }).__trazoDirect = direct; // ayuda para pruebas automáticas
+    refresh(true);
+  });
+  return () => { disposed = true; direct?.destroy(); viewer?.dispose(); };
 }

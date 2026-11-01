@@ -48,3 +48,17 @@ bloquea combinaciones no fabricables y calcula el precio con la misma lógica de
 | Media | Biblioteca de herrajes y materiales con stock/precios del proveedor | Costos reales |
 | Baja | Colaboración: comentarios sobre láminas, versiones por cliente, aprobación de planos | Flujo con clientes y taller |
 | Baja | Celda robótica: exportar secuencia de ensamble (orden de piezas, poses) desde el despiece | Automatización del armado |
+
+## Fase 2 propuesta: Rhino.Compute como motor pesado
+
+```
+iPad (Trazo) ──spec.json──▶ túnel (Cloudflare Tunnel / Tailscale) ──▶ PC Windows con Rhino 8 + Rhino.Compute
+                                                                      └─ definición Grasshopper: uniones CNC, cantos, booleanas, STEP
+iPad ◀── malla glTF + .3dm / STEP / DXF ◀──────────────────────────────┘
+```
+
+- La lógica de fabricación vive en Grasshopper (donde se centraliza el trabajo); Trazo envía el spec y muestra el resultado.
+- La tienda **no depende** del PC encendido: el configurador usa los generadores JS; Compute genera los archivos de
+  fabricación al diseñar o al confirmar un pedido (cola si el PC está apagado).
+- Requisitos a confirmar: Rhino.Compute solo corre en Windows; revisar con McNeel las condiciones de licencia de Compute
+  para uso en producción.

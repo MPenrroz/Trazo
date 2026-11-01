@@ -65,6 +65,11 @@ export class Viewer {
   private explode = 0;
   private framed = false;
   private ground: THREE.Mesh;
+  /** Se ejecutan en cada cuadro (p. ej. para escalar manillas a tamaño de pantalla constante). */
+  onFrame = new Set<() => void>();
+  /** Capa superpuesta (manillas), dibujada siempre encima. */
+  overlay = new THREE.Group();
+  private raycaster = new THREE.Raycaster();
 
   constructor(private el: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -92,10 +97,12 @@ export class Viewer {
     this.ground.position.z = -0.5;
     this.scene.add(this.ground);
     this.scene.add(this.group);
+    this.overlay.renderOrder = 999;
+    this.scene.add(this.overlay);
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(el);
     this.resize();
-    const loop = () => { this.raf = requestAnimationFrame(loop); this.controls.update(); this.renderer.render(this.scene, this.camera); };
+    const loop = () => { this.raf = requestAnimationFrame(loop); this.controls.update(); for (const f of this.onFrame) f(); this.renderer.render(this.scene, this.camera); };
     loop();
   }
 
@@ -136,6 +143,44 @@ export class Viewer {
       m.geometry.computeBoundingBox();
       const pc = m.geometry.boundingBox!.getCenter(new THREE.Vector3());
       m.position.copy(pc.sub(c).multiplyScalar(this.explode));
+    }
+  }
+
+  /** Rayo desde un punto de pantalla (coordenadas de cliente). */
+  ray(clientX: number, clientY: number): THREE.Ray {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray.clone();
+  }
+
+  /** Objeto bajo el dedo dentro de `targets` (por defecto, las piezas que no son referencia). */
+  hit(clientX: number, clientY: number, targets?: THREE.Object3D[]): THREE.Intersection | null {
+    this.ray(clientX, clientY);
+    const objs = targets ?? (this.group.children[0]?.children ?? []).filter((o) => !o.userData.ref);
+    this.raycaster.params.Line = { threshold: 4 }; // tocar el canto (línea) de una pieza también la selecciona
+    for (const x of this.raycaster.intersectObjects(objs, true)) {
+      if ((x.object as THREE.Mesh).isMesh) return x;
+      const parent = x.object.parent;
+      if ((x.object as THREE.LineSegments).isLineSegments && parent && (parent as THREE.Mesh).isMesh && parent.userData.partId) return { ...x, object: parent };
+    }
+    return null;
+  }
+
+  /** Resalta las piezas indicadas (la elegida más fuerte, sus copias más suave). */
+  highlight(primary: string | null, related: string[] = []) {
+    const root = this.group.children[0];
+    if (!root) return;
+    for (const m of root.children as THREE.Mesh[]) {
+      if (m.userData.ref) continue;
+      if (!m.userData.baseMat) m.userData.baseMat = m.material;
+      const id = m.userData.partId as string;
+      if (id === primary || related.includes(id)) {
+        const mat = (m.userData.baseMat as THREE.MeshStandardMaterial).clone();
+        mat.emissive = new THREE.Color(0xea580c);
+        mat.emissiveIntensity = id === primary ? 0.35 : 0.15;
+        m.material = mat;
+      } else m.material = m.userData.baseMat;
     }
   }
 

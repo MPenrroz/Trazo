@@ -7,6 +7,7 @@
   -webkit-tap-highlight-color: transparent;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); overscroll-behavior: none; }
 #app { min-height: 100%; display: flex; flex-direction: column; }
@@ -253,3 +254,12 @@ button.sm { min-height: 36px; padding: 0 10px; font-size: 14px; }
 .vars small { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
 .vars .chips { margin: 6px 0; gap: 4px; }
 .vars code { background: #efede8; border-radius: 6px; padding: 2px 6px; font-size: 13px; }
+
+/* Edición directa en 3D */
+.sel-bar { position: absolute; left: 10px; top: 10px; right: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: rgba(255,255,255,.94); border: 1px solid var(--line); border-radius: 12px; padding: 6px 8px; box-shadow: 0 4px 14px rgba(0,0,0,.08); z-index: 5; }
+.sel-info { display: flex; flex-direction: column; margin-right: auto; min-width: 0; }
+.sel-info small { color: var(--muted); font-variant-numeric: tabular-nums; }
+.sel-hint { font-size: 12px; color: var(--muted); }
+.drag-label { position: absolute; transform: translate(14px, -46px); background: var(--accent-2); color: #fff; padding: 6px 10px; border-radius: 10px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; z-index: 6; font-size: 15px; }
+.viewer-tools button { min-width: var(--tap); }
+@media (max-width: 760px) { .sel-hint { display: none; } }

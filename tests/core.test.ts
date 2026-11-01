@@ -259,3 +259,42 @@ describe('diseño libre: cama nido', () => {
     expect(parts.some((p) => p.id === 'respaldo')).toBe(true);
   });
 });
+
+import { applyDrag, nudgeFormula } from '../src/core/direct';
+
+describe('manipulación directa', () => {
+  it('ajusta fórmulas de forma legible', () => {
+    expect(nudgeFormula('600', 50)).toBe('650');
+    expect(nudgeFormula('alto_cama - 20', 50)).toBe('alto_cama + 30');
+    expect(nudgeFormula('alto_cama - 20', 20)).toBe('alto_cama');
+    expect(nudgeFormula('(n - 1)*paso', -15)).toBe('(n - 1)*paso - 15');
+    expect(nudgeFormula('baranda ? 300 : 0', 10)).toBe('(baranda ? 300 : 0) + 10');
+    expect(nudgeFormula('a*-2', 10)).toBe('a*-2 + 10'); // no confunde el signo del factor con un ajuste
+    expect(nudgeFormula('-t', -50)).toBe('-t - 50');
+  });
+  const st = STARTERS[0];
+  const design = st.design();
+  const params = freeParams(design);
+  const values = Object.fromEntries(params.map((d) => [d.key, d.default]));
+  it('un arrastre sobre una medida-parámetro cambia el parámetro y avisa a cuántas piezas afecta', () => {
+    const r = applyDrag(design, values, params, 'respaldo', [{ field: 'h', delta: 50 }]);
+    expect(r.values.alto_respaldo).toBe(1000);
+    expect(r.design.components.find((c) => c.id === 'respaldo')!.h).toBe('alto_respaldo');
+    expect(r.notes[0]).toMatch(/Alto respaldo/);
+  });
+  it('respeta el rango y mantiene fija la cara opuesta al estirar desde el lado negativo', () => {
+    // estirar el respaldo hacia −Y en 400: ancho topa en 1600 (máx), Y se corre solo lo aplicado
+    const r = applyDrag(design, values, params, 'respaldo', [{ field: 'w', delta: 400 }, { field: 'y', delta: -400 }], true);
+    // w = "ancho + 2*t" no es un parámetro solo → se ajusta la fórmula
+    expect(r.design.components.find((c) => c.id === 'respaldo')!.w).toBe('ancho + 2*t + 400');
+    expect(r.design.components.find((c) => c.id === 'respaldo')!.y).toBe('-t - 400');
+    const r2 = applyDrag(design, values, params, 'larg-sup', [{ field: 'w', delta: 900 }, { field: 'x', delta: -900 }], true);
+    expect(r2.values.largo_baranda).toBe(1800); // tope del rango
+    expect(r2.applied).toEqual([600, -600]);
+    expect(r2.notes[0]).toMatch(/tope del rango/);
+  });
+  it('no modifica el diseño original', () => {
+    applyDrag(design, values, params, 'barrote', [{ field: 'x', delta: 30 }]);
+    expect(design.components.find((c) => c.id === 'barrote')!.x).toBe('(largo_baranda - 40 - (n - 1)*paso) / 2 + i*paso');
+  });
+});
