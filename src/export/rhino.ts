@@ -40,7 +40,7 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
 
   for (const p of parts) {
     const mat = project.fab.materials.find((m) => m.id === p.material);
-    const li = layer(`Piezas · ${p.role}`, mat?.color ?? '#999999');
+    const li = p.process === 'ref' ? layer(`Referencia · ${p.role}`, '#9aa3a8') : layer(`Piezas · ${p.role}`, mat?.color ?? '#999999');
     const n = normal(p.plane);
     // Extrusion.create extruye hacia +Z del plano de la curva; se mapea WorldXY → plano de la pieza
     const toPart = rh.Transform.planeToPlane(worldXY, { origin: p.plane.o, xAxis: p.plane.x, yAxis: p.plane.y, zAxis: n });

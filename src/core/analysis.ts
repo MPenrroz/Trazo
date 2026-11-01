@@ -20,6 +20,8 @@ export interface Analysis {
 
 export function analyse(allParts: Part[], method: FabMethod, material: Material, project: Pick<Project, 'pricing'>, materials: Material[] = []): Analysis {
   const checks: Check[] = [];
+  // las piezas de referencia (cama, muro existente) no se fabrican ni cotizan
+  allParts = allParts.filter((p) => p.process !== 'ref');
   const b3 = bounds3(allParts);
   // solo las piezas de tablero pasan por CNC; el tapiz se cotiza aparte
   const parts = allParts.filter((p) => p.process !== 'tapiz');
@@ -33,7 +35,7 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
     if (!fits) checks.push({ level: 'error', part: p.name, msg: `${p.name}: ${round(b.w, 0)}×${round(b.h, 0)} mm no cabe en ${bed[0]}×${bed[1]} mm (${method.name}). Dividir la pieza o cambiar de método/tablero.` });
     if (p.thickness > method.maxThickness) checks.push({ level: 'error', part: p.name, msg: `${p.name}: espesor ${p.thickness} mm supera el máximo de ${method.name} (${method.maxThickness} mm).` });
     const reflex = reflexVertices(p.profile, 25);
-    if (reflex.length && method.tool > 1) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: ${reflex.length} esquina(s) interior(es). Con fresa Ø${method.tool} quedará radio ${method.tool / 2} mm → agregar dogbones si encastra otra pieza.` });
+    if (reflex.length && method.tool > 1) checks.push({ level: 'info', part: p.name, msg: `${p.name}: ${reflex.length} esquina(s) interior(es) quedarán con radio ${method.tool / 2} mm (fresa Ø${method.tool}). Si ahí encastra otra pieza, agregar dogbones.` });
     for (const k of p.pockets ?? []) {
       if (k.depth > p.thickness - 6) checks.push({ level: 'error', part: p.name, msg: `${p.name}: ${k.name} deja menos de 6 mm de material (espesor ${p.thickness} mm).` });
       // ancho medio de la ranura ≈ 2·área / perímetro (exacto para franjas delgadas)

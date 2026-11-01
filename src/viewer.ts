@@ -28,7 +28,17 @@ export function partsToGroup(parts: Part[], materials: Material[], edges = true)
   const group = new THREE.Group();
   const mats = new Map<string, THREE.Material>();
   const lineMat = new THREE.LineBasicMaterial({ color: 0x2b2b2b, transparent: true, opacity: 0.55 });
+  const refMat = new THREE.MeshStandardMaterial({ color: 0x8f9aa1, transparent: true, opacity: 0.22, depthWrite: false, roughness: 1 });
   for (const p of parts) {
+    if (p.process === 'ref') {
+      // contexto (cama existente): volumen translúcido sin sombras
+      const g = partGeometry(p);
+      const mesh = new THREE.Mesh(g, refMat);
+      mesh.name = p.name; mesh.userData = { partId: p.id, role: p.role, ref: true };
+      if (edges) mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 20), new THREE.LineBasicMaterial({ color: 0x6b767d, transparent: true, opacity: 0.5 })));
+      group.add(mesh);
+      continue;
+    }
     if (!mats.has(p.material)) {
       const m = materials.find((x) => x.id === p.material);
       mats.set(p.material, new THREE.MeshStandardMaterial({ color: m?.color ?? '#ddd', roughness: 0.75, metalness: p.material === 'aluminio' ? 0.6 : 0, transparent: p.material === 'acrilico', opacity: p.material === 'acrilico' ? 0.6 : 1 }));

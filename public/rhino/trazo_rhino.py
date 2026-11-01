@@ -190,6 +190,170 @@ def build_nicho(v, mat, profile=None):
 TEMPLATES = {"estanteria": build_estanteria, "mesa": build_mesa, "costillas": build_costillas, "nicho": build_nicho}
 
 
+# --------------------------------------------------------------------------- diseño libre (espejo de src/core/expr.ts y free.ts)
+import re as _re
+
+_TOK = _re.compile(r"\s*(?:(\d+(?:\.\d+)?|\.\d+)|([A-Za-z_áéíóúñÁÉÍÓÚÑ][\wáéíóúñÁÉÍÓÚÑ]*)|(<=|>=|==|!=|&&|\|\||[-+*/%()?:<>,!]))")
+_FN = {"min": min, "max": max, "round": lambda x: math.floor(x + 0.5), "floor": math.floor, "ceil": math.ceil,
+       "abs": abs, "sqrt": math.sqrt, "sin": lambda d: math.sin(math.radians(d)), "cos": lambda d: math.cos(math.radians(d))}
+
+
+def eval_expr(src, scope):
+    """Evalúa una fórmula de Trazo (sin eval de Python). Verdadero = 1, falso = 0."""
+    if isinstance(src, (int, float)):
+        return float(src)
+    toks, i, src = [], 0, str(src)
+    while i < len(src):
+        if not src[i:].strip():
+            break
+        m = _TOK.match(src, i)
+        if not m:
+            raise ValueError("símbolo no válido cerca de '%s'" % src[i:].strip()[:8])
+        toks.append(("num", float(m.group(1))) if m.group(1) else ("id", m.group(2)) if m.group(2) else ("op", m.group(3)))
+        i = m.end()
+    pos = [0]
+
+    def peek():
+        return toks[pos[0]] if pos[0] < len(toks) else (None, None)
+
+    def is_op(v):
+        return peek() == ("op", v)
+
+    def take():
+        t = peek(); pos[0] += 1; return t
+
+    def ternary():
+        c = orr()
+        if is_op("?"):
+            take(); a = ternary()
+            if not is_op(":"):
+                raise ValueError("se esperaba ':'")
+            take(); b = ternary()
+            return a if c else b
+        return c
+
+    def orr():
+        a = andd()
+        while is_op("||"):
+            take(); b = andd(); a = 1.0 if (a or b) else 0.0
+        return a
+
+    def andd():
+        a = cmp()
+        while is_op("&&"):
+            take(); b = cmp(); a = 1.0 if (a and b) else 0.0
+        return a
+
+    def cmp():
+        a = add()
+        while peek()[0] == "op" and peek()[1] in ("<", ">", "<=", ">=", "==", "!="):
+            o = take()[1]; b = add()
+            a = 1.0 if {"<": a < b, ">": a > b, "<=": a <= b, ">=": a >= b, "==": abs(a - b) < 1e-9, "!=": abs(a - b) >= 1e-9}[o] else 0.0
+        return a
+
+    def add():
+        a = mul()
+        while is_op("+") or is_op("-"):
+            o = take()[1]; b = mul(); a = a + b if o == "+" else a - b
+        return a
+
+    def mul():
+        a = unary()
+        while is_op("*") or is_op("/") or is_op("%"):
+            o = take()[1]; b = unary()
+            if o in "/%" and b == 0:
+                raise ValueError("división por cero")
+            a = a * b if o == "*" else a / b if o == "/" else math.fmod(a, b)
+        return a
+
+    def unary():
+        if is_op("-"):
+            take(); return -unary()
+        if is_op("+"):
+            take(); return unary()
+        if is_op("!"):
+            take(); return 0.0 if unary() else 1.0
+        return primary()
+
+    def primary():
+        k, v = take()
+        if k == "num":
+            return v
+        if (k, v) == ("op", "("):
+            r = ternary()
+            if not is_op(")"):
+                raise ValueError("se esperaba ')'")
+            take(); return r
+        if k == "id":
+            if is_op("("):
+                fn = _FN.get(v.lower())
+                if not fn:
+                    raise ValueError("función desconocida '%s'" % v)
+                take(); args = []
+                if not is_op(")"):
+                    args.append(ternary())
+                    while is_op(","):
+                        take(); args.append(ternary())
+                take()
+                return float(fn(*args))
+            if v in scope:
+                return float(scope[v])
+            if v == "pi":
+                return math.pi
+            raise ValueError("'%s' no es un parámetro" % v)
+        raise ValueError("fórmula incompleta" if k is None else "'%s' fuera de lugar" % v)
+
+    r = ternary()
+    if pos[0] < len(toks):
+        raise ValueError("sobra '%s'" % toks[pos[0]][1])
+    return r
+
+
+def _plane_for(orient, x, y, z, t):
+    if orient == "XZ":
+        return dict(o=(x, y + t, z), x=(1, 0, 0), y=(0, 0, 1))
+    if orient == "YZ":
+        return dict(o=(x, y, z), x=(0, 1, 0), y=(0, 0, 1))
+    return dict(o=(x, y, z), x=(1, 0, 0), y=(0, 1, 0))
+
+
+def build_libre(values, spec, errors=None):
+    """Diseño libre: piezas definidas por fórmulas sobre los parámetros (`t`, `i`, `n` incluidos)."""
+    errors = [] if errors is None else errors
+    scope = {k: (1.0 if v is True else 0.0 if v is False else float(v)) for k, v in values.items()}
+    shapes = spec.get("shapes") or {}
+    mat = spec.get("materialId", "")
+    P_ = []
+    for c in (spec.get("free") or {}).get("components", []):
+        try:
+            if c.get("when", "").strip() and not eval_expr(c["when"], scope):
+                continue
+            n = int(round(eval_expr(c.get("count") or "1", scope)))
+            for i in range(n):
+                s = dict(scope, i=i, n=n)
+                w, h, t, x, y, z = [eval_expr(c[k], s) for k in ("w", "h", "t", "x", "y", "z")]
+                if w <= 0 or h <= 0 or t <= 0:
+                    errors.append("%s: medidas deben ser > 0" % c["name"]); break
+                outline, holes = rect(w, h), []
+                sh = shapes.get(c["shape"]) if c["shape"] != "rect" else None
+                if sh:
+                    outline = [(u * w, v * h) for u, v in sh["outline"]]
+                    if c.get("holes", True):
+                        holes = [[(u * w, v * h) for u, v in hh] for hh in sh["holes"]]
+                kind = c.get("kind", "tablero")
+                part = dict(id=c["id"] if n == 1 else "%s-%d" % (c["id"], i + 1), name=c["name"] if n == 1 else "%s %d" % (c["name"], i + 1),
+                            role=c.get("role") or c["name"], material=mat if kind == "tablero" else kind, thickness=t,
+                            plane=_plane_for(c["orient"], x, y, z, t), profile=outline)
+                if holes:
+                    part["holes"] = holes
+                if kind != "tablero":
+                    part["process"] = kind
+                P_.append(part)
+        except ValueError as e:
+            errors.append("%s: %s" % (c.get("name", "?"), e))
+    return P_
+
+
 # --------------------------------------------------------------------------- parámetros
 def clamp(d, raw):
     t = d["type"]
@@ -226,6 +390,8 @@ def resolve(spec, overrides=None):
 
 def build(spec, overrides=None):
     values = resolve(spec, overrides)
+    if spec["template"] == "libre":
+        return build_libre(values, spec), values
     fn = TEMPLATES.get(spec["template"], build_estanteria)
     return fn(values, spec.get("materialId", ""), spec.get("profile")), values
 
@@ -303,7 +469,7 @@ def run_rhino():
     for k, v in values.items():
         sc.doc.Strings.SetString("trazo:param:%s" % k, str(v))
     for p in parts:
-        layer = "%s::%s" % (root, p["role"])
+        layer = "%s::%s%s" % (root, "Referencia::" if p.get("process") == "ref" else "", p["role"])
         if not rs.IsLayer(layer):
             rs.AddLayer(layer)
         b = part_brep(p)

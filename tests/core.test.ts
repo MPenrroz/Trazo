@@ -23,7 +23,7 @@ describe('plantillas', () => {
     expect(parts.filter((p) => p.role === 'Repisa')).toHaveLength(4 * 2);
   });
   it('todas las plantillas generan piezas con espesor positivo', () => {
-    for (const t of TEMPLATES) {
+    for (const t of TEMPLATES.filter((x) => x.id !== 'libre')) { // 'libre' depende del diseño del usuario
       const parts = t.build(defaults(t.id), { material: 'mdf' });
       expect(parts.length).toBeGreaterThan(0);
       for (const p of parts) { expect(p.thickness).toBeGreaterThan(0); expect(Math.abs(polyArea(p.profile))).toBeGreaterThan(0); }
@@ -189,5 +189,73 @@ describe('ranura curva para listones', () => {
     const p2 = getTemplate('nicho').build({ ...v, gd: 0 }, { material: 'mdf-laca' });
     expect(p2.find((p) => p.id === 'costado-frente')!.pockets).toBeUndefined();
     expect(p2.find((p) => p.role === 'Listón asiento')!.profile[1][0]).toBe(444);
+  });
+});
+
+import { evalExpr } from '../src/core/expr';
+import { STARTERS, buildFree, freeParams, shapesFromSketch } from '../src/core/free';
+import type { SketchDoc } from '../src/core/types';
+
+describe('fórmulas', () => {
+  const s = { ancho: 1060, t: 18, baranda: 1, paso: 110 };
+  it('aritmética, precedencia y funciones', () => {
+    expect(evalExpr('ancho + 2*t', s)).toBe(1096);
+    expect(evalExpr('(ancho - 40) / 2', s)).toBe(510);
+    expect(evalExpr('floor((1200 - 100) / paso) + 1', s)).toBe(11);
+    expect(evalExpr('max(t, 20) - -2', s)).toBe(22);
+  });
+  it('condiciones', () => {
+    expect(evalExpr('baranda ? 300 : 0', s)).toBe(300);
+    expect(evalExpr('ancho > 1000 && !0', s)).toBe(1);
+  });
+  it('errores claros', () => {
+    expect(() => evalExpr('ancho +', s)).toThrow(/incompleta/);
+    expect(() => evalExpr('alto * 2', s)).toThrow(/"alto" no es un parámetro/);
+    expect(() => evalExpr('ancho / 0', s)).toThrow(/división por cero/);
+    expect(() => evalExpr('ancho; alert(1)', s)).toThrow();
+  });
+});
+
+describe('diseño libre: cama nido', () => {
+  const st = STARTERS[0];
+  const design = st.design();
+  const sketch: SketchDoc = { elements: st.sketch(0, 0), mmPerPx: 1, calibrated: false, underlayOpacity: 1 };
+  const shapes = shapesFromSketch(sketch);
+  const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.default]));
+  const build = (v = values) => { const errors: string[] = []; const parts = buildFree(v, design, shapes, 'plywood-abedul', errors); return { parts, errors }; };
+
+  it('la ventana circular se vuelve calado del respaldo', () => {
+    expect(Object.keys(shapes)).toEqual(['respaldo-forma']);
+    expect(shapes['respaldo-forma'].holes).toHaveLength(1);
+  });
+  it('arma respaldo, piecera, baranda y barrotes sin errores', () => {
+    const { parts, errors } = build();
+    expect(errors).toEqual([]);
+    const resp = parts.find((p) => p.id === 'respaldo')!;
+    expect(resp.holes).toHaveLength(1);
+    expect(Math.max(...resp.profile.map((p) => p[0]))).toBeCloseTo(1096);
+    expect(Math.max(...resp.profile.map((p) => p[1]))).toBeCloseTo(950);
+    expect(parts.filter((p) => p.role === 'Barrote')).toHaveLength(11);
+    expect(parts.find((p) => p.id === 'cama')!.process).toBe('ref');
+  });
+  it('los barrotes dejan luces ≤ 75 mm y quedan centrados en la baranda', () => {
+    const bars = build().parts.filter((p) => p.role === 'Barrote').map((p) => p.plane.o[0]).sort((a, b) => a - b);
+    expect(bars[1] - bars[0] - 40).toBeLessThanOrEqual(75);
+    expect(bars[0]).toBeCloseTo(1200 - (bars[bars.length - 1] + 40), 6);
+  });
+  it('los Sí/No quitan piezas y la referencia no se cotiza ni anida', () => {
+    const { parts } = build({ ...values, baranda: false, piecera: false });
+    expect(parts.map((p) => p.role).sort()).toEqual(['Referencia', 'Respaldo']);
+    const a = analyse(build().parts, DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(a.nest.placements.some((p) => p.part.process === 'ref')).toBe(false);
+    expect(a.size[0]).toBeLessThan(2100); // tamaño del producto sin la cama
+    expect(a.checks.some((c) => c.level === 'error')).toBe(false);
+  });
+  it('una fórmula con error se informa sin romper el resto', () => {
+    const bad = { ...design, components: design.components.map((c) => (c.id === 'piecera' ? { ...c, h: 'alto_pie * 2' } : c)) };
+    const errors: string[] = [];
+    const parts = buildFree(values, bad, shapes, 'mdf', errors);
+    expect(errors[0]).toMatch(/Piecera · Alto: "alto_pie" no es un parámetro/);
+    expect(parts.some((p) => p.id === 'respaldo')).toBe(true);
   });
 });

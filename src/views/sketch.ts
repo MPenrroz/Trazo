@@ -59,7 +59,9 @@ export function sketchView(root: HTMLElement) {
     const bb = prof?.length ? prof.reduce((a, [x, y]) => [Math.max(a[0], x), Math.max(a[1], y)], [0, 0]) : null;
     status.replaceChildren(
       h('span', { class: sk.calibrated ? 'pill ok' : 'pill warn' }, sk.calibrated ? `Escala 1 px = ${round(sk.mmPerPx, 3)} mm` : 'Sin escala — usa 📏'),
-      h('span', { class: sk.profileId ? 'pill ok' : 'pill' }, sk.profileId && bb ? `Perfil: ${round(bb[0], 0)} × ${round(bb[1], 0)} mm` : 'Sin perfil cerrado'),
+      store.project.template === 'libre'
+        ? h('span', { class: 'pill ok' }, `${Object.keys(store.shapes).length} silueta(s) para piezas`)
+        : h('span', { class: sk.profileId ? 'pill ok' : 'pill' }, sk.profileId && bb ? `Perfil: ${round(bb[0], 0)} × ${round(bb[1], 0)} mm` : 'Sin perfil cerrado'),
       h('span', { class: 'muted' }, tool.tip));
   }
   updateStatus();
@@ -90,8 +92,12 @@ export function sketchView(root: HTMLElement) {
         toggle('Imantar ángulos (0/45/90°)', () => editor.snapAngle, (v) => { editor.snapAngle = v; }),
         toggle('Mostrar medidas', () => editor.showLengths, (v) => { editor.showLengths = v; }),
         h('h4', null, 'Del boceto al producto'),
-        h('p', { class: 'muted' }, 'La primera forma cerrada se usa como perfil (naranjo). Con la tipología "Costillas desde boceto" se convierte en piezas CNC.'),
-        h('button', { onclick: () => { store.update((p) => { if (p.template !== 'costillas') { p.template = 'costillas'; p.values = {}; p.rules = {}; } }, 'template'); location.hash = '#/modelo'; } }, 'Usar perfil → Modelo 3D'),
+        store.project.template === 'libre'
+          ? h('p', { class: 'muted' }, 'Diseño libre: cada forma cerrada es una silueta que puedes asignar a una pieza (Modelo 3D → Piezas → Forma). Lo que dibujes dentro de una silueta se vuelve calado. La silueta se estira al ancho y alto de la pieza.')
+          : h('p', { class: 'muted' }, 'La primera forma cerrada se usa como perfil (naranjo). Con la tipología "Costillas desde boceto" se convierte en piezas CNC.'),
+        store.project.template === 'libre'
+          ? h('button', { onclick: () => { location.hash = '#/modelo'; } }, 'Ir a las piezas → Modelo 3D')
+          : h('button', { onclick: () => { store.update((p) => { if (p.template !== 'costillas') { p.template = 'costillas'; p.values = {}; p.rules = {}; } }, 'template'); location.hash = '#/modelo'; } }, 'Usar perfil → Modelo 3D'),
         h('h4', null, 'Exportar boceto'),
         h('div', { class: 'row wrap' },
           h('button', { class: 'ghost', onclick: () => download(editor.toSVG(), `${slug(store.project.name)}-boceto.svg`, 'image/svg+xml') }, 'SVG'),

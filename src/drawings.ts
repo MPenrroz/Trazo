@@ -58,7 +58,8 @@ function chain(parts: Part[], axis: 0 | 1 | 2, min: number, max: number): number
 export type OverlayView = View;
 export interface DrawingOpts { sketchOverlay?: boolean; overlayOpacity?: number; overlayView?: View }
 
-export function technicalDrawing(project: Project, parts: Part[], opts: DrawingOpts = {}): string {
+export function technicalDrawing(project: Project, allParts: Part[], opts: DrawingOpts = {}): string {
+  const parts = allParts.filter((p) => p.process !== 'ref'); // la referencia no va en los planos
   const W = 420, H = 297; // A3 horizontal
   const b = bounds3(parts);
   const [sx, sy, sz] = b.size;

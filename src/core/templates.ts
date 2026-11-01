@@ -1,7 +1,16 @@
+import { buildFree, type FreeDesign, type Shape } from './free';
 import { arc, boxPart, bounds2, ccw } from './geom';
 import type { ParamDef, ParamValues, Part, V2 } from './types';
 
-export interface TemplateCtx { material: string; profile?: V2[] }
+export interface TemplateCtx {
+  material: string;
+  profile?: V2[];
+  /** Diseño libre y formas del boceto (tipología 'libre'). */
+  free?: FreeDesign;
+  shapes?: Record<string, Shape>;
+  /** Errores de fórmulas detectados al construir. */
+  errors?: string[];
+}
 
 export interface Template {
   id: string;
@@ -231,5 +240,15 @@ const nook: Template = {
   },
 };
 
-export const TEMPLATES: Template[] = [shelf, table, ribs, nook];
+/** Diseño libre: los parámetros y piezas los define el arquitecto (ver core/free.ts). */
+const free: Template = {
+  id: 'libre',
+  name: 'Diseño libre (compositor)',
+  description: 'Defines tus propios parámetros y armas el producto con piezas: rectángulos o siluetas del boceto, con fórmulas, repeticiones y calados.',
+  usesProfile: false,
+  params: [], // dinámicos: project.free.params
+  build: (v, ctx) => buildFree(v, ctx.free, ctx.shapes ?? {}, ctx.material, ctx.errors),
+};
+
+export const TEMPLATES: Template[] = [free, shelf, table, ribs, nook];
 export const getTemplate = (id: string) => TEMPLATES.find((t) => t.id === id) ?? shelf;

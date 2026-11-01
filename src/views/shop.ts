@@ -9,7 +9,7 @@ import { h, money, paramControl, toast } from '../ui';
 import { Viewer } from '../viewer';
 
 export function partsFromSpec(spec: ProductSpec, values: ParamValues): Part[] {
-  return getTemplate(spec.template).build(values, { material: spec.materialId, profile: spec.profile });
+  return getTemplate(spec.template).build(values, { material: spec.materialId, profile: spec.profile, free: spec.free, shapes: spec.shapes });
 }
 
 /**

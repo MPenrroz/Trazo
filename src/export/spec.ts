@@ -1,5 +1,6 @@
 import type { ParamValues, Project } from '../core/types';
 import { store } from '../core/store';
+import type { FreeDesign, Shape } from '../core/free';
 
 /**
  * Especificación del producto configurable: lo que necesita la tienda (o Grasshopper / ShapeDiver)
@@ -21,6 +22,9 @@ export interface ProductSpec {
   fab: Project['fab'];
   hero?: string;
   parts?: unknown;
+  /** Diseño libre + formas del boceto ya normalizadas (para regenerar en la tienda y en Rhino). */
+  free?: FreeDesign;
+  shapes?: Record<string, Shape>;
 }
 
 export function buildSpec(withParts = false, withHero = true): ProductSpec {
@@ -31,5 +35,7 @@ export function buildSpec(withParts = false, withHero = true): ProductSpec {
     materialId: p.materialId, methodId: p.methodId, pricing: p.pricing, fab: p.fab,
     hero: withHero ? p.references[0]?.src : undefined,
     parts: withParts ? store.parts() : undefined,
+    free: p.template === 'libre' ? p.free : undefined,
+    shapes: p.template === 'libre' ? store.shapes : undefined,
   };
 }

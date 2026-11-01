@@ -6,7 +6,8 @@ import { USDZExporter } from 'three/examples/jsm/exporters/USDZExporter.js';
 import type { Material, Part } from '../core/types';
 import { partsToGroup } from '../viewer';
 
-const group = (parts: Part[], materials: Material[]) => { const g = partsToGroup(parts, materials, false); g.updateMatrixWorld(true); return g; };
+// las piezas de referencia (cama existente) no se exportan como producto
+const group = (parts: Part[], materials: Material[]) => { const g = partsToGroup(parts.filter((p) => p.process !== 'ref'), materials, false); g.updateMatrixWorld(true); return g; };
 
 export const toOBJ = (parts: Part[], m: Material[]) => new OBJExporter().parse(group(parts, m));
 export const toSTL = (parts: Part[], m: Material[]) => new STLExporter().parse(group(parts, m), { binary: true }) as DataView;

@@ -1,6 +1,8 @@
 import { uid } from '../core/geom';
 import { store } from '../core/store';
 import { TEMPLATES } from '../core/templates';
+import { STARTERS, freeParams } from '../core/free';
+import { applyStarter } from './free-editor';
 import { card, h, pickFiles, readImage, toast } from '../ui';
 
 const TAGS = ['Forma', 'Material', 'Uso', 'Detalle', 'Ambiente', 'Unión'];
@@ -54,7 +56,7 @@ export function briefView(root: HTMLElement) {
   const templates = h('div', { class: 'tpls' }, ...TEMPLATES.map((t) => h('button', {
     class: `tpl ${t.id === p.template ? 'on' : ''}`,
     onclick: (e: Event) => {
-      store.update((x) => { x.template = t.id; x.values = Object.fromEntries(t.params.map((q) => [q.key, q.default])); x.rules = {}; }, 'template');
+      store.update((x) => { x.template = t.id; x.values = Object.fromEntries((t.id === 'libre' ? freeParams(x.free) : t.params).map((q) => [q.key, q.default])); x.rules = {}; }, 'template');
       templates.querySelectorAll('.tpl').forEach((c) => c.classList.remove('on')); (e.currentTarget as HTMLElement).classList.add('on');
     },
   }, h('b', null, t.name), h('span', null, t.description))));
@@ -66,7 +68,9 @@ export function briefView(root: HTMLElement) {
         h('label', { class: 'field' }, 'Autor / estudio', h('input', { value: p.author, oninput: (e: Event) => set('author', (e.target as HTMLInputElement).value) })),
         h('label', { class: 'field' }, 'Descripción del concepto', h('textarea', { rows: 5, placeholder: 'Idea, intención, usuario, contexto, sensaciones…', oninput: (e: Event) => set('description', (e.target as HTMLTextAreaElement).value) }, p.description))),
       card('Funcionalidades', funcs, h('div', { class: 'row' }, newFunc, h('button', { onclick: addFunc }, 'Agregar'))),
-      card('Tipología base (generador paramétrico)', templates),
+      card('Tipología base (generador paramétrico)', templates,
+        h('p', { class: 'muted' }, 'Ejemplos editables para el diseño libre:'),
+        h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost', title: st.description, onclick: () => { applyStarter(st); location.hash = '#/modelo'; } }, st.name)))),
       card('Manufactura prevista', methods, h('p', { class: 'muted' }, 'Define qué restricciones se verifican (tamaño de cama, espesor máximo, herramienta). Ajustable en Fabricación.')),
       card('Notas de diseño', h('textarea', { rows: 4, placeholder: 'Uniones, acabados, dudas a resolver en Rhino…', oninput: (e: Event) => set('notes', (e.target as HTMLTextAreaElement).value) }, p.notes))),
     h('div', { class: 'col' },

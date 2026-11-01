@@ -32,6 +32,21 @@ publicable en una **tienda web donde el cliente configura** el producto dentro d
 
 Todo se guarda localmente en el navegador (IndexedDB), con múltiples proyectos (menú ⋯: nuevo, importar, duplicar, eliminar).
 
+## Diseño libre (compositor)
+
+Para productos que no calzan en una tipología: defines **tus parámetros** (con rango y si el cliente los ve) y armas el
+producto con **piezas**. Cada pieza tiene:
+
+- **Forma**: rectángulo o una silueta cerrada del Boceto (lo dibujado dentro de la silueta se vuelve calado). La silueta se estira al ancho × alto de la pieza.
+- **Orientación**: frontal (XZ), lateral (YZ) u horizontal (XY).
+- **Medidas y posición como fórmulas**: `ancho + 2*t`, `alto_cama + alto_baranda - 60`, `baranda ? 300 : 0`, `min()`, `max()`, `floor()`…
+- **Cantidad** (`i` = número de copia, `n` = cantidad) para barrotes, listones o costillas.
+- **Presente si**: la pieza aparece solo si la fórmula es verdadera (p. ej. un parámetro Sí/No).
+- **Tipo**: tablero CNC, tapiz (se cotiza por m²) o referencia (la cama o el muro existente: se ve en 3D pero no se fabrica).
+
+Ejemplo cargable: *Cama nido: respaldo + baranda* (cama de 106 × 200 × 45 cm, respaldo y piecera con silueta de orejas y
+ventana calada, baranda removible con barrotes de luz ≤ 75 mm).
+
 ## Tipologías paramétricas incluidas
 
 - **Estantería / librero** — ancho, alto, profundidad, repisas, módulos, fondo, zócalo, espesor.

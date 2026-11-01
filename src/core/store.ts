@@ -2,6 +2,7 @@ import { DEFAULT_MATERIALS, DEFAULT_METHODS } from './catalog';
 import { uid } from './geom';
 import { resolveParams, resolveValues } from './params';
 import { getTemplate } from './templates';
+import { emptyFree, freeParams, shapesFromSketch } from './free';
 import type { Part, Project } from './types';
 
 const DB = 'trazo', STORE = 'projects', CURRENT = 'trazo:current';
@@ -40,7 +41,7 @@ export function normalize(p: Partial<Project>): Project {
   // agrega materiales/métodos nuevos del catálogo a proyectos antiguos
   fab.materials = [...fab.materials, ...base.fab.materials.filter((m) => !fab.materials.some((x) => x.id === m.id))];
   fab.methods = [...fab.methods, ...base.fab.methods.filter((m) => !fab.methods.some((x) => x.id === m.id))];
-  return { ...base, ...p, sketch: { ...base.sketch, ...(p.sketch ?? {}) }, pricing: { ...base.pricing, ...(p.pricing ?? {}) }, fab } as Project;
+  return { ...base, ...p, free: p.free ?? emptyFree(), sketch: { ...base.sketch, ...(p.sketch ?? {}) }, pricing: { ...base.pricing, ...(p.pricing ?? {}) }, fab } as Project;
 }
 
 type Listener = (p: Project, reason: string) => void;
@@ -96,11 +97,23 @@ class Store {
 
   // Derivados
   get template() { return getTemplate(this.project.template); }
-  get params() { return resolveParams(this.template.params, this.project.rules); }
+  get params() {
+    const defs = this.template.id === 'libre' ? freeParams(this.project.free) : this.template.params;
+    return resolveParams(defs, this.project.rules);
+  }
+  /** Formas cerradas del boceto disponibles como piezas (diseño libre). */
+  get shapes() { return shapesFromSketch(this.project.sketch); }
+  /** Errores de fórmulas de la última construcción. */
+  buildErrors: string[] = [];
   get values() { return resolveValues(this.params, this.project.values); }
   get method() { return this.project.fab.methods.find((m) => m.id === this.project.methodId) ?? this.project.fab.methods[0]; }
   get material() { return this.project.fab.materials.find((m) => m.id === this.project.materialId) ?? this.project.fab.materials[0]; }
-  parts(values = this.values): Part[] { return this.template.build(values, { material: this.material.id, profile: this.project.profile }); }
+  parts(values = this.values): Part[] {
+    const errors: string[] = [];
+    const parts = this.template.build(values, { material: this.material.id, profile: this.project.profile, free: this.project.free, shapes: this.shapes, errors });
+    this.buildErrors = errors;
+    return parts;
+  }
 }
 
 export const store = new Store();

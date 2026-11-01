@@ -19,8 +19,11 @@ export interface Part {
   material: string;
   /** Rol en el producto (lateral, repisa, cubierta…) para agrupar en despiece y capas de Rhino. */
   role: string;
-  /** Proceso: 'cnc' (por defecto, se anida y corta) o 'tapiz' (espuma/tela, se cotiza por m², no se corta en CNC). */
-  process?: 'cnc' | 'tapiz';
+  /**
+   * Proceso: 'cnc' (por defecto, se anida y corta), 'tapiz' (espuma/tela, se cotiza por m², no se corta en CNC)
+   * o 'ref' (contexto: la cama o el muro existente; se ve en 3D pero no se fabrica ni cotiza).
+   */
+  process?: 'cnc' | 'tapiz' | 'ref';
   /** Mecanizados de profundidad parcial (ranuras, cajeados, rebajes). */
   pockets?: Pocket[];
 }
@@ -123,6 +126,8 @@ export interface Project {
   /** Perfil en mm derivado del boceto (para plantillas que lo usan). */
   profile?: V2[];
   pricing: { margin: number; base: number; currency: string };
+  /** Diseño libre (tipología 'libre'): parámetros y piezas definidos por el arquitecto. */
+  free?: import('./free').FreeDesign;
   fab: { methods: FabMethod[]; materials: Material[] };
   createdAt: number;
   updatedAt: number;
