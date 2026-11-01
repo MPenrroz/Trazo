@@ -28,7 +28,7 @@ for (const d of demos) {
   if (d.template === 'costillas') p.rules = { l: { min: 600, max: 2400 }, n: { min: 6, max: 30 } };
   if (d.template === 'nicho') {
     p.rules = { ws: { min: 600, max: 900 }, h: { min: 480, max: 650 }, d: { min: 420, max: 560 } };
-    p.notes = 'Listones del mismo tablero encastrados en ranura curva de 6 mm fresada en la cara interior de los costados (agregar en Rhino). '
+    p.notes = 'Listones del mismo tablero encastrados en ranura curva de 6 mm fresada en la cara interior de los costados (incluida en el modelo). '
       + 'Cojín: espuma HR 40 mm sobre base de terciado flexible, funda removible con cierre. Cantos redondeados r=3 mm. Laca poliuretánica blanca hueso.';
     p.pricing = { margin: 70, base: 35000, currency: 'CLP' };
   }

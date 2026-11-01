@@ -1,5 +1,6 @@
-import { bounds2, bounds3, d2, dot, normal, partArea, partCutLength, reflexVertices, round } from './geom';
+import { bounds2, bounds3, d2, dot, normal, partArea, partCutLength, polyArea, polyPerimeter, reflexVertices, round } from './geom';
 import { nest, type NestResult } from './nesting';
+import { pocketToolpath } from './pockets';
 import type { Check, FabMethod, Material, Part, Project } from './types';
 
 export interface Analysis {
@@ -7,6 +8,8 @@ export interface Analysis {
   nest: NestResult;
   areaM2: number;
   cutM: number;
+  /** Recorrido de fresa en cajeados/ranuras (m). */
+  pocketM: number;
   weightKg: number;
   size: [number, number, number];
   cost: { material: number; machining: number; upholstery: number; subtotal: number; price: number };
@@ -31,6 +34,12 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
     if (p.thickness > method.maxThickness) checks.push({ level: 'error', part: p.name, msg: `${p.name}: espesor ${p.thickness} mm supera el máximo de ${method.name} (${method.maxThickness} mm).` });
     const reflex = reflexVertices(p.profile, 25);
     if (reflex.length && method.tool > 1) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: ${reflex.length} esquina(s) interior(es). Con fresa Ø${method.tool} quedará radio ${method.tool / 2} mm → agregar dogbones si encastra otra pieza.` });
+    for (const k of p.pockets ?? []) {
+      if (k.depth > p.thickness - 6) checks.push({ level: 'error', part: p.name, msg: `${p.name}: ${k.name} deja menos de 6 mm de material (espesor ${p.thickness} mm).` });
+      // ancho medio de la ranura ≈ 2·área / perímetro (exacto para franjas delgadas)
+      const width = (2 * Math.abs(polyArea(k.outline))) / polyPerimeter(k.outline);
+      if (width < method.tool) checks.push({ level: 'error', part: p.name, msg: `${p.name}: ${k.name} es más angosta que la fresa Ø${method.tool}.` });
+    }
     const n = p.profile.length;
     const short = p.profile.some((pt, i) => d2(pt, p.profile[(i + 1) % n]) < method.tool * 1.5 && n < 40);
     if (short) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: tiene detalles menores a ${round(method.tool * 1.5, 1)} mm; la herramienta no los reproducirá.` });
@@ -48,6 +57,8 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
   const nr = nest(parts, bed, method.tool + 4);
   const areaM2 = parts.reduce((s, p) => s + partArea(p), 0) / 1e6;
   const cutM = parts.reduce((s, p) => s + partCutLength(p), 0) / 1000;
+  const pocketParts = parts.filter((p) => p.pockets?.length);
+  const pocketM = pocketParts.reduce((s, p) => s + (p.pockets ?? []).reduce((t, k) => t + pocketToolpath(p, k, method.tool), 0), 0) / 1000;
   const upMat = materials.find((m) => m.id === soft[0]?.material);
   const upholsteryM2 = soft.reduce((s, p) => s + partArea(p), 0) / 1e6;
   const weightKg = parts.reduce((s, p) => s + partArea(p) * p.thickness, 0) / 1e9 * material.density
@@ -55,6 +66,11 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
   const sheetArea = (bed[0] * bed[1]) / 1e6;
   const util = nr.sheets ? areaM2 / (nr.sheets * sheetArea) : 0;
   checks.push({ level: 'info', msg: `${parts.length} piezas · ${nr.sheets} tablero(s) de ${bed[0]}×${bed[1]} · aprovechamiento ${round(util * 100, 0)}% · ${round(cutM, 1)} m de corte · ~${round(weightKg, 1)} kg.` });
+  if (pocketParts.length) {
+    const names = [...new Set(pocketParts.flatMap((p) => (p.pockets ?? []).map((k) => k.name)))].join(', ');
+    const flip = pocketParts.some((p) => p.pockets!.some((k) => k.face === 'base'));
+    checks.push({ level: 'info', msg: `Cajeados: ${names} en ${pocketParts.length} pieza(s) · ${round(pocketM, 1)} m de recorrido con fresa Ø${method.tool}.${flip ? ' En el DXF de corte las piezas van espejadas para mecanizar la ranura boca arriba.' : ''}` });
+  }
   if (soft.length) checks.push({ level: 'info', msg: `Tapiz: ${round(upholsteryM2, 2)} m² de espuma ${soft[0].thickness} mm + tela (se confecciona aparte, no pasa por CNC).` });
   if (nr.sheets && util < 0.45) checks.push({ level: 'info', msg: 'Aprovechamiento de tablero bajo: ajustar dimensiones para que las piezas aniden mejor puede bajar el costo.' });
   const grouped = groupChecks(checks);
@@ -62,7 +78,8 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
   if (!checks.some((c) => c.level === 'error' || c.level === 'warn')) checks.unshift({ level: 'ok', msg: `Factible con ${method.name} en ${material.name}.` });
 
   const materialCost = nr.sheets * material.pricePerSheet;
-  const machining = cutM * method.ratePerMeter + nr.sheets * method.setupPerSheet;
+  // el vaciado avanza más rápido que el corte pasante: se cobra al 50% por metro
+  const machining = cutM * method.ratePerMeter + pocketM * method.ratePerMeter * 0.5 + nr.sheets * method.setupPerSheet;
   // tapiz: m² × precio del paño / área del paño, +30% por merma y confección
   const upholstery = upMat ? Math.round(upholsteryM2 / ((upMat.sheet[0] * upMat.sheet[1]) / 1e6) * upMat.pricePerSheet * 1.3) : 0;
   const subtotal = materialCost + machining + upholstery + project.pricing.base;
@@ -76,7 +93,7 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
     const e = map.get(key);
     if (e) e.qty++; else map.set(key, { name: p.name, role: p.role, qty: 1, w, h, t: p.thickness, material: p.material });
   }
-  return { checks, nest: nr, areaM2, cutM, weightKg, size, cost: { material: materialCost, machining, upholstery, subtotal, price }, upholsteryM2, cutList: [...map.values()] };
+  return { checks, nest: nr, areaM2, cutM, pocketM, weightKg, size, cost: { material: materialCost, machining, upholstery, subtotal, price }, upholsteryM2, cutList: [...map.values()] };
 }
 
 /** Une mensajes idénticos de piezas distintas ("Costilla 1…12: …") para no repetir 12 veces lo mismo. */

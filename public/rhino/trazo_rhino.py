@@ -123,20 +123,31 @@ def build_nicho(v, mat, profile=None):
     libr, cojin = bool(v["libr"]), bool(v["cojin"])
     wb = float(v["wb"]) if libr else 0.0
     n = max(4, int(round(float(v["list"]))))
+    gd = max(0.0, min(float(v.get("gd", 6)), T - 6))
     ts, foam, margin = T, 40.0, 80.0
+    lip, clr = (15.0 if gd > 0 else 0.0), 0.5
     Hb = H - P
-    R = min(float(v["ws"]) / 2.0, Hb - T - ts - 30)
+    R = min(float(v["ws"]) / 2.0, Hb - T - lip - ts - 30)
+    Rs = R + lip
     Ls = 2 * R + 2 * margin
     L = T + Ls + T + (wb if libr else 0)
     cx = T + Ls / 2.0
     arc = [(cx + R * math.cos(-math.pi * i / 36.0), Hb + R * math.sin(-math.pi * i / 36.0)) for i in range(37)]
     prof = [(0, 0), (L, 0), (L, Hb)] + arc + [(0, Hb)]
 
-    def side(pid, name, y):
-        return dict(id=pid, name=name, role="Costado", material=mat, thickness=T,
-                    plane=dict(o=(0, y, P), x=(1, 0, 0), y=(0, 0, 1)), profile=prof)
+    # ranura curva en la cara interior de los costados (anillo que cubre la banda de los listones)
+    r_in, r_out = Rs * math.cos(math.pi / (2 * n)) - clr, Rs + ts + 1 + clr
+    groove = [(cx + r_out * math.cos(math.pi + math.pi * i / 48.0), Hb + r_out * math.sin(math.pi + math.pi * i / 48.0)) for i in range(49)]
+    groove += [(cx + r_in * math.cos(2 * math.pi - math.pi * i / 48.0), Hb + r_in * math.sin(2 * math.pi - math.pi * i / 48.0)) for i in range(49)]
 
-    P_ = [side("costado-frente", "Costado frontal", T), side("costado-tras", "Costado trasero", D)]
+    def side(pid, name, y, face):
+        d = dict(id=pid, name=name, role="Costado", material=mat, thickness=T,
+                 plane=dict(o=(0, y, P), x=(1, 0, 0), y=(0, 0, 1)), profile=prof)
+        if gd > 0:
+            d["pockets"] = [dict(name="Ranura curva listones", outline=groove, depth=gd, face=face)]
+        return d
+
+    P_ = [side("costado-frente", "Costado frontal", T, "base"), side("costado-tras", "Costado trasero", D, "top")]
     yi, di = T, D - 2 * T
     P_.append(box_part("cabezal", "Cabezal izquierdo", "Cabezal", mat, (0, yi, P), (T, di, Hb), "x"))
     P_.append(box_part("base", "Base", "Base", mat, (T, yi, P), (L - T - (0 if libr else T), di, T), "z"))
@@ -155,22 +166,24 @@ def build_nicho(v, mat, profile=None):
         P_.append(box_part("zoc-izq", "Zócalo izquierdo", "Zócalo", mat, (r, r + T, 0), (T, D - 2 * r - 2 * T, P), "x"))
         P_.append(box_part("zoc-der", "Zócalo derecho", "Zócalo", mat, (L - r - T, r + T, 0), (T, D - 2 * r - 2 * T, P), "x"))
 
-    def facets(rad, prefix, name, role, material, thick, process=None):
+    ext = gd - clr if gd > 0 else 0.0
+
+    def facets(rad, prefix, name, role, material, thick, process=None, extend=0.0):
         for i in range(n):
             a0, a1 = math.pi + math.pi * i / n, math.pi + math.pi * (i + 1) / n
             A = (cx + rad * math.cos(a0), H + rad * math.sin(a0))
             B = (cx + rad * math.cos(a1), H + rad * math.sin(a1))
             w = math.hypot(B[0] - A[0], B[1] - A[1])
             part = dict(id="%s-%d" % (prefix, i + 1), name="%s %d" % (name, i + 1), role=role, material=material,
-                        thickness=thick, plane=dict(o=(A[0], yi, A[1]), x=(0, 1, 0), y=((B[0] - A[0]) / w, 0, (B[1] - A[1]) / w)),
-                        profile=rect(di, w))
+                        thickness=thick, plane=dict(o=(A[0], yi - extend, A[1]), x=(0, 1, 0), y=((B[0] - A[0]) / w, 0, (B[1] - A[1]) / w)),
+                        profile=rect(di + 2 * extend, w))
             if process:
                 part["process"] = process
             P_.append(part)
 
-    facets(R, "liston", "Listón", "Listón asiento", mat, ts)
+    facets(Rs, "liston", "Listón", "Listón asiento", mat, ts, extend=ext)
     if cojin:
-        facets(R - foam, "cojin", "Cojín", "Cojín", "tapiz", foam, "tapiz")
+        facets(Rs - foam, "cojin", "Cojín", "Cojín", "tapiz", foam, "tapiz")
     return P_
 
 
@@ -231,8 +244,23 @@ def part_brep(p):
     planar = rg.Brep.CreatePlanarBreps(curves, TOL)
     if not planar:
         return None
-    path = rg.LineCurve(plane.Origin, plane.Origin + plane.ZAxis * float(p["thickness"]))
-    return planar[0].Faces[0].CreateExtrusion(path, True)
+    T = float(p["thickness"])
+    path = rg.LineCurve(plane.Origin, plane.Origin + plane.ZAxis * T)
+    solid = planar[0].Faces[0].CreateExtrusion(path, True)
+    # cajeados: se resta el volumen de cada ranura (con 1 mm extra hacia afuera para un corte limpio)
+    for k in p.get("pockets") or []:
+        d = float(k["depth"])
+        w0, w1 = (-1.0, d) if k["face"] == "base" else (T - d, T + 1.0)
+        pk = rg.Brep.CreatePlanarBreps([crv(k["outline"])], TOL)
+        if not pk:
+            continue
+        pk[0].Translate(plane.ZAxis * w0)
+        o0 = plane.Origin + plane.ZAxis * w0
+        tool = pk[0].Faces[0].CreateExtrusion(rg.LineCurve(o0, o0 + plane.ZAxis * (w1 - w0)), True)
+        res = rg.Brep.CreateBooleanDifference(solid, tool, TOL) if tool else None
+        if res:
+            solid = res[0]
+    return solid
 
 
 def report(parts, values):

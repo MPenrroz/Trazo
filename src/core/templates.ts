@@ -159,16 +159,21 @@ const nook: Template = {
     { key: 'cojin', label: 'Cojín tapizado', type: 'bool', default: true, group: 'Configuración', exposed: true },
     { key: 'list', label: 'Listones del asiento', type: 'int', min: 8, max: 30, step: 1, default: 16, group: 'Fabricación', exposed: false },
     { key: 'plinth', label: 'Zócalo retranqueado', type: 'number', unit: 'mm', min: 0, max: 100, step: 5, default: 50, group: 'Fabricación', exposed: false },
+    { key: 'gd', label: 'Profundidad ranura listones', type: 'number', unit: 'mm', min: 0, max: 10, step: 1, default: 6, group: 'Fabricación', exposed: false, help: 'Ranura curva en la cara interior de los costados donde encajan los listones. 0 = sin ranura.' },
     thicknessParam(18),
   ],
   build(v, { material }) {
     const T = num(v, 't'), H = num(v, 'h'), D = num(v, 'd'), P = num(v, 'plinth');
+    const gd = Math.max(0, Math.min(Number.isFinite(num(v, 'gd')) ? num(v, 'gd') : 6, T - 6)); // deja al menos 6 mm de pared
     const libr = !!v.libr, wb = libr ? num(v, 'wb') : 0, cojin = !!v.cojin;
     const n = Math.max(4, Math.round(num(v, 'list')));
     const ts = T, foam = 40, margin = 80; // listones del mismo tablero, espuma 40 mm, ala a cada lado del corte
+    // labio de material entre el borde del corte y la ranura (para que la ranura quede cerrada y resistente)
+    const lip = gd > 0 ? 15 : 0, clr = 0.5; // holgura de encaje por lado
     const Hb = H - P;
     // el corte no puede atravesar la base: radio máximo según el alto disponible
-    const R = Math.min(num(v, 'ws') / 2, Hb - T - ts - 30);
+    const R = Math.min(num(v, 'ws') / 2, Hb - T - lip - ts - 30);
+    const Rs = R + lip; // radio de la cara interior de los listones
     const Ls = 2 * R + 2 * margin; // largo interior de la zona de asiento
     const L = T + Ls + T + (libr ? wb : 0);
     const cx = T + Ls / 2;
@@ -176,9 +181,15 @@ const nook: Template = {
 
     // Costados largos (frente y trasera): rectángulo con corte semicircular desde arriba
     const prof: V2[] = [[0, 0], [L, 0], [L, Hb], ...arc(cx, Hb, R, 0, -Math.PI, 36), [0, Hb]];
-    const side = (id: string, name: string, y: number): Part => ({ id, name, role: 'Costado', material, thickness: T,
-      plane: { o: [0, y, P], x: [1, 0, 0], y: [0, 0, 1] }, profile: prof }); // normal −Y
-    parts.push(side('costado-frente', 'Costado frontal', T), side('costado-tras', 'Costado trasero', D));
+    // Ranura curva (anillo) en la cara interior: cubre la banda de los listones, incluida la flecha de cada cuerda
+    const n0 = Math.max(4, Math.round(num(v, 'list')));
+    const rIn = Rs * Math.cos(Math.PI / (2 * n0)) - clr, rOut = Rs + ts + 1 + clr;
+    const groove: V2[] = [...arc(cx, Hb, rOut, Math.PI, 2 * Math.PI, 48), ...arc(cx, Hb, rIn, 2 * Math.PI, Math.PI, 48)];
+    const side = (id: string, name: string, y: number, face: 'base' | 'top'): Part => ({ id, name, role: 'Costado', material, thickness: T,
+      plane: { o: [0, y, P], x: [1, 0, 0], y: [0, 0, 1] }, profile: prof, // normal −Y
+      pockets: gd > 0 ? [{ name: "Ranura curva listones", outline: groove, depth: gd, face }] : undefined });
+    // frente: origen en la cara interior (y=T) → 'base'; trasero: origen en la cara exterior (y=D) → 'top'
+    parts.push(side('costado-frente', 'Costado frontal', T, 'base'), side('costado-tras', 'Costado trasero', D, 'top'));
 
     const yi = T, di = D - 2 * T; // interior entre costados
     parts.push(boxPart('cabezal', 'Cabezal izquierdo', 'Cabezal', material, [0, yi, P], [T, di, Hb], 'x'));
@@ -210,9 +221,11 @@ const nook: Template = {
         fn(i, [A[0], yi, A[1]], [(B[0] - A[0]) / w, 0, (B[1] - A[1]) / w], w);
       }
     };
-    facets(R, n, (i, o, dir, w) => parts.push({ id: `liston-${i + 1}`, name: `Listón ${i + 1}`, role: 'Listón asiento', material, thickness: ts,
-      plane: { o, x: [0, 1, 0], y: dir }, profile: [[0, 0], [di, 0], [di, w], [0, w]] }));
-    if (cojin) facets(R - foam, n, (i, o, dir, w) => parts.push({ id: `cojin-${i + 1}`, name: `Cojín ${i + 1}`, role: 'Cojín', material: 'tapiz', process: 'tapiz', thickness: foam,
+    // los listones entran en las ranuras: más largos en (profundidad − holgura) por lado
+    const ext = gd > 0 ? gd - clr : 0, ls = di + 2 * ext;
+    facets(Rs, n, (i, o, dir, w) => parts.push({ id: `liston-${i + 1}`, name: `Listón ${i + 1}`, role: 'Listón asiento', material, thickness: ts,
+      plane: { o: [o[0], o[1] - ext, o[2]], x: [0, 1, 0], y: dir }, profile: [[0, 0], [ls, 0], [ls, w], [0, w]] }));
+    if (cojin) facets(Rs - foam, n, (i, o, dir, w) => parts.push({ id: `cojin-${i + 1}`, name: `Cojín ${i + 1}`, role: 'Cojín', material: 'tapiz', process: 'tapiz', thickness: foam,
       plane: { o, x: [0, 1, 0], y: dir }, profile: [[0, 0], [di, 0], [di, w], [0, w]] }));
     return parts;
   },

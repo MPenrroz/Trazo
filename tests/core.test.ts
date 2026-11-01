@@ -6,6 +6,9 @@ import { nest } from '../src/core/nesting';
 import { clampValue, resolveParams, resolveValues } from '../src/core/params';
 import { TEMPLATES, getTemplate } from '../src/core/templates';
 import { fitStroke, profileFromSketch } from '../src/sketch/fit';
+import { partLayers, pocketArea } from '../src/core/pockets';
+import { nestingDxf } from '../src/export/dxf';
+import { placedProfile } from '../src/core/nesting';
 import type { V2 } from '../src/core/types';
 
 const defaults = (id: string) => Object.fromEntries(getTemplate(id).params.map((p) => [p.key, p.default]));
@@ -133,5 +136,58 @@ describe('nicho de lectura', () => {
     const base = parts.find((p) => p.id === 'base')!;
     const lowest = Math.min(...parts.filter((p) => p.role === 'Listón asiento').map((p) => p.plane.o[2]));
     expect(lowest).toBeGreaterThan(base.plane.o[2] + base.thickness);
+  });
+});
+
+describe('ranura curva para listones', () => {
+  const v = defaults('nicho');
+  const parts = getTemplate('nicho').build(v, { material: 'mdf-laca' });
+  const front = parts.find((p) => p.id === 'costado-frente')!;
+  const back = parts.find((p) => p.id === 'costado-tras')!;
+  const slats = parts.filter((p) => p.role === 'Listón asiento');
+
+  it('ambos costados llevan la ranura en su cara interior', () => {
+    expect(front.pockets?.[0]).toMatchObject({ depth: 6, face: 'base' }); // origen en y=T (interior)
+    expect(back.pockets?.[0]).toMatchObject({ depth: 6, face: 'top' }); // w=espesor en y=D−T (interior)
+    // cara interior en mundo: frente y=T, trasero y=D−T
+    expect(front.plane.o[1]).toBe(18);
+    expect(back.plane.o[1] - back.thickness).toBe(480 - 18);
+  });
+  it('los listones entran en la ranura con holgura y no la atraviesan', () => {
+    for (const s of slats) {
+      const y0 = s.plane.o[1], y1 = y0 + s.profile[1][0];
+      expect(y0).toBeCloseTo(18 - 5.5); expect(y1).toBeCloseTo(480 - 18 + 5.5);
+      expect(18 - y0).toBeLessThan(6); // no toca el fondo de la ranura
+    }
+  });
+  it('la ranura queda cerrada: labio de material entre el corte y la ranura', () => {
+    const R = 380, Hb = 510, cx = 18 + 920 / 2;
+    const rIn = Math.min(...front.pockets![0].outline.map(([x, y]) => Math.hypot(x - cx, y - Hb)));
+    expect(rIn - R).toBeGreaterThan(10);
+  });
+  it('la pieza se descompone en capas: la zona ranurada es 6 mm más delgada', () => {
+    const layers = partLayers(front);
+    expect(layers.map((l) => [l.w0, l.w1])).toEqual([[0, 6], [6, 18]]);
+    const area = (l: (typeof layers)[number]) => Math.abs(polyArea(l.outer)) - l.holes.reduce((s, h) => s + Math.abs(polyArea(h)), 0);
+    expect(area(layers[1]) - area(layers[0])).toBeCloseTo(pocketArea(front, front.pockets![0]), -1);
+  });
+  it('el DXF de corte incluye la capa de cajeado con las piezas boca arriba', () => {
+    const a = analyse(parts, DEFAULT_METHODS[0], DEFAULT_MATERIALS.find((m) => m.id === 'mdf-laca')!, pricing, DEFAULT_MATERIALS);
+    const dxf = nestingDxf(a.nest);
+    expect(dxf).toContain('CAJEADO_6MM');
+    const pf = a.nest.placements.find((p) => p.part.id === 'costado-frente')!;
+    const pb = a.nest.placements.find((p) => p.part.id === 'costado-tras')!;
+    expect(pf.flipped).toBe(true); expect(pb.flipped).toBe(false);
+    // la ranura cae dentro del contorno colocado
+    const out = placedProfile(pf, pf.part.profile), g = placedProfile(pf, pf.part.pockets![0].outline);
+    const xs = out.map((p) => p[0]);
+    for (const [x] of g) { expect(x).toBeGreaterThanOrEqual(Math.min(...xs) - 1e-6); expect(x).toBeLessThanOrEqual(Math.max(...xs) + 1e-6); }
+    expect(a.pocketM).toBeGreaterThan(1);
+    expect(a.checks.some((c) => c.level === 'error')).toBe(false);
+  });
+  it('sin ranura (0 mm) los listones vuelven al largo interior', () => {
+    const p2 = getTemplate('nicho').build({ ...v, gd: 0 }, { material: 'mdf-laca' });
+    expect(p2.find((p) => p.id === 'costado-frente')!.pockets).toBeUndefined();
+    expect(p2.find((p) => p.role === 'Listón asiento')!.profile[1][0]).toBe(444);
   });
 });

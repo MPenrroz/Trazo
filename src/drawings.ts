@@ -6,7 +6,7 @@ type View = 'front' | 'top' | 'left';
 const VIEW_LABEL: Record<View, string> = { front: 'ALZADO FRONTAL', top: 'PLANTA', left: 'VISTA LATERAL IZQ.' };
 
 /** Proyección (sistema europeo / ISO E). Devuelve [u, v, profundidad desde el observador]. */
-function project(view: View, p: V3): [number, number, number] {
+function proj(view: View, p: V3): [number, number, number] {
   if (view === 'front') return [p[0], p[2], p[1]];
   if (view === 'top') return [p[0], p[1], -p[2]];
   return [-p[1], p[2], p[0]];
@@ -19,7 +19,7 @@ interface Faces { pts: V2[]; depth: number }
 
 function faces(p: Part, view: View): Faces[] {
   const out: Faces[] = [];
-  const ring = (w: number) => p.profile.map(([u, v]) => project(view, toWorld(p.plane, u, v, w)));
+  const ring = (w: number) => p.profile.map(([u, v]) => proj(view, toWorld(p.plane, u, v, w)));
   const a = ring(0), b = ring(p.thickness);
   const avg = (r: [number, number, number][]) => r.reduce((s, q) => s + q[2], 0) / r.length;
   out.push({ pts: a.map((q) => [q[0], q[1]]), depth: avg(a) }, { pts: b.map((q) => [q[0], q[1]]), depth: avg(b) });
@@ -85,6 +85,13 @@ export function technicalDrawing(project: Project, parts: Part[], opts: DrawingO
   for (const view of ['front', 'top', 'left'] as View[]) {
     const all = parts.flatMap((p) => faces(p, view)).sort((a, c) => c.depth - a.depth);
     body += `<g class="view">` + all.map((f) => `<polygon points="${f.pts.map(([u, v]) => toPaper(view, u, v).map((n) => n.toFixed(2)).join(',')).join(' ')}"/>`).join('') + `</g>`;
+    // cajeados/ranuras en línea oculta (segmentada) cuando su cara mira hacia la vista
+    const vdir: V3 = view === 'front' ? [0, 1, 0] : view === 'top' ? [0, 0, 1] : [1, 0, 0];
+    body += `<g class="hidden">` + parts.flatMap((p) => (Math.abs(dot(normal(p.plane), vdir)) > 0.9 ? p.pockets ?? [] : []).map((k) => {
+      const w = k.face === 'base' ? k.depth : p.thickness - k.depth;
+      const pts = k.outline.map(([u, v]) => { const q = proj(view, toWorld(p.plane, u, v, w)); return toPaper(view, q[0], q[1]).map((n) => n.toFixed(2)).join(','); });
+      return `<polygon points="${pts.join(' ')}"/>`;
+    })).join('') + `</g>`;
     const [ox, oy] = origin[view];
     const wv = (view === 'left' ? sy : sx) * s, hv = (view === 'top' ? sy : sz) * s;
     body += `<text class="vlabel" x="${ox}" y="${oy + (view === 'top' ? 7 : 17)}">${VIEW_LABEL[view]}</text>`;
@@ -131,7 +138,7 @@ export function technicalDrawing(project: Project, parts: Part[], opts: DrawingO
     <text x="${W - 107}" y="${H - 14}">${esc(project.author || 'Autor')}</text><text x="${W - 57}" y="${H - 14}">${date}</text>
     <text class="small" x="${W - 107}" y="${H - 64}">TRAZO · ${esc(project.fab.methods.find((m) => m.id === project.methodId)?.name ?? '')}</text>
   </g>`;
-  const cut = cutTable(parts, W - 110, 20);
+  const cut = cutTable(parts, W - 110, 20) + pocketNote(parts, W - 110, H - 80);
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}mm" height="${H}mm" class="sheet">
   <defs><marker id="tick" viewBox="-3 -3 6 6" markerWidth="6" markerHeight="6" orient="auto"><line x1="-2" y1="2" x2="2" y2="-2" stroke="#111" stroke-width="0.6"/></marker></defs>
   <style>
@@ -142,11 +149,20 @@ export function technicalDrawing(project: Project, parts: Part[], opts: DrawingO
     .title rect,.title line{fill:none;stroke:#111;stroke-width:0.35}.title text{font-size:2.8px;fill:#111}.title .big{font-size:4.2px;font-weight:700}.title .small{font-size:2.3px;fill:#555}
     .cut text{font-size:2.3px;fill:#111}.cut line{stroke:#999;stroke-width:0.12}.cut .h{font-weight:700}
     .frame{fill:none;stroke:#111;stroke-width:0.5}
+    .hidden polygon{fill:none;stroke:#111;stroke-width:0.18;stroke-dasharray:1.2 0.8}
   </style>
   <rect width="${W}" height="${H}" fill="#fff"/>
   <rect class="frame" x="10" y="10" width="${W - 20}" height="${H - 20}"/>
   ${body}${cut}${tb}
 </svg>`;
+}
+
+function pocketNote(parts: Part[], x: number, y: number): string {
+  const ks = new Map<string, { n: number; depth: number }>();
+  for (const p of parts) for (const k of p.pockets ?? []) { const e = ks.get(k.name); if (e) e.n++; else ks.set(k.name, { n: 1, depth: k.depth }); }
+  if (!ks.size) return '';
+  return `<g class="cut"><text class="h" x="${x}" y="${y}">MECANIZADOS (línea segmentada)</text>` + [...ks].map(([name, e], i) =>
+    `<text x="${x}" y="${y + 4 + i * 4}">${esc(name)} · prof. ${e.depth} mm · ${e.n} pieza(s), cara interior</text>`).join('') + '</g>';
 }
 
 function cutTable(parts: Part[], x: number, y: number): string {
@@ -204,10 +220,14 @@ export function nestingDrawing(nr: NestResult): string {
       const outer = placedProfile(pl, pl.part.profile).map(([x, y]) => `${pad + x},${oy + SH - y}`).join(' ');
       g += `<polygon points="${outer}" class="part"/>`;
       for (const h of pl.part.holes ?? []) g += `<polygon points="${placedProfile(pl, h).map(([x, y]) => `${pad + x},${oy + SH - y}`).join(' ')}" class="hole"/>`;
+      for (const k of pl.part.pockets ?? []) {
+        if (pl.flipped ? k.face !== 'base' : k.face !== 'top') continue;
+        g += `<polygon points="${placedProfile(pl, k.outline).map(([x, y]) => `${pad + x},${oy + SH - y}`).join(' ')}" class="pocket"/>`;
+      }
       const cx = pad + pl.x + pl.w / 2, cy = oy + SH - (pl.y + pl.h / 2);
       const fs = Math.max(18, Math.min(42, Math.min(pl.w, pl.h) / 5));
       g += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" class="pl">${esc(pl.part.name)}</text>`;
     }
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="nest"><style>.sheetr{fill:#faf7f0;stroke:#666;stroke-width:3}.part{fill:#e9d8b4;stroke:#7a4b16;stroke-width:3}.hole{fill:#faf7f0;stroke:#7a4b16;stroke-width:3}.lbl{font:600 34px sans-serif;fill:#444}.pl{font-family:sans-serif;fill:#5a3a10}</style>${g}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" class="nest"><style>.sheetr{fill:#faf7f0;stroke:#666;stroke-width:3}.part{fill:#e9d8b4;stroke:#7a4b16;stroke-width:3}.hole{fill:#faf7f0;stroke:#7a4b16;stroke-width:3}.lbl{font:600 34px sans-serif;fill:#444}.pl{font-family:sans-serif;fill:#5a3a10}.pocket{fill:#c9b48b;stroke:#0e7a55;stroke-width:3}</style>${g}</svg>`;
 }

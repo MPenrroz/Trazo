@@ -100,6 +100,19 @@
       "exposed": false
     },
     {
+      "key": "gd",
+      "label": "Profundidad ranura listones",
+      "type": "number",
+      "unit": "mm",
+      "min": 0,
+      "max": 10,
+      "step": 1,
+      "default": 6,
+      "group": "Fabricación",
+      "exposed": false,
+      "help": "Ranura curva en la cara interior de los costados donde encajan los listones. 0 = sin ranura."
+    },
+    {
       "key": "t",
       "label": "Espesor tablero",
       "type": "choice",
@@ -144,6 +157,7 @@
     "cojin": true,
     "list": 16,
     "plinth": 50,
+    "gd": 6,
     "t": 18
   },
   "materialId": "mdf-laca",

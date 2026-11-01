@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "polygon-clipping": "^0.15.7",
     "rhino3dm": "^8.17.0",
     "three": "^0.170.0"
   },

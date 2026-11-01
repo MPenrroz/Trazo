@@ -44,7 +44,7 @@ export function fabView(root: HTMLElement) {
       card('Costo estimado',
         h('table', { class: 'cost' },
           h('tr', null, h('td', null, `Material (${a.nest.sheets} tablero/s × ${money(mat.pricePerSheet, cur)})`), h('td', null, money(a.cost.material, cur))),
-          h('tr', null, h('td', null, `Mecanizado (${a.cutM.toFixed(1)} m + setup)`), h('td', null, money(a.cost.machining, cur))),
+          h('tr', null, h('td', null, `Mecanizado (${a.cutM.toFixed(1)} m de corte${a.pocketM ? ` + ${a.pocketM.toFixed(1)} m de cajeado` : ''} + setup)`), h('td', null, money(a.cost.machining, cur))),
           a.cost.upholstery ? h('tr', null, h('td', null, `Tapiz (${a.upholsteryM2.toFixed(2)} m² espuma + tela, +30% confección)`), h('td', null, money(a.cost.upholstery, cur))) : null,
           h('tr', null, h('td', null, 'Base (armado, embalaje)'), h('td', null, money(store.project.pricing.base, cur))),
           h('tr', { class: 'sub' }, h('td', null, 'Costo directo'), h('td', null, money(a.cost.subtotal, cur))),

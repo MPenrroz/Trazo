@@ -1,15 +1,22 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { bounds3, normal } from './core/geom';
+import { partLayers } from './core/pockets';
 import type { Material, Part } from './core/types';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z arriba, como Rhino
 
-/** Geometría three.js de una pieza (perfil extruido) en coordenadas de mundo. */
+/** Geometría three.js de una pieza (perfil extruido, con cajeados) en coordenadas de mundo. */
 export function partGeometry(p: Part): THREE.BufferGeometry {
-  const shape = new THREE.Shape(p.profile.map(([x, y]) => new THREE.Vector2(x, y)));
-  for (const h of p.holes ?? []) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
-  const g = new THREE.ExtrudeGeometry(shape, { depth: p.thickness, bevelEnabled: false, curveSegments: 1 });
+  const geoms = partLayers(p).map((l) => {
+    const shape = new THREE.Shape(l.outer.map(([x, y]) => new THREE.Vector2(x, y)));
+    for (const h of l.holes) shape.holes.push(new THREE.Path(h.map(([x, y]) => new THREE.Vector2(x, y))));
+    const lg = new THREE.ExtrudeGeometry(shape, { depth: l.w1 - l.w0, bevelEnabled: false, curveSegments: 1 });
+    lg.translate(0, 0, l.w0);
+    return lg;
+  });
+  const g = geoms.length === 1 ? geoms[0] : mergeGeometries(geoms, false)!;
   const n = normal(p.plane);
   const m = new THREE.Matrix4().makeBasis(new THREE.Vector3(...p.plane.x), new THREE.Vector3(...p.plane.y), new THREE.Vector3(...n));
   m.setPosition(...p.plane.o);

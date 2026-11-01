@@ -21,7 +21,16 @@ export interface Part {
   role: string;
   /** Proceso: 'cnc' (por defecto, se anida y corta) o 'tapiz' (espuma/tela, se cotiza por m², no se corta en CNC). */
   process?: 'cnc' | 'tapiz';
+  /** Mecanizados de profundidad parcial (ranuras, cajeados, rebajes). */
+  pockets?: Pocket[];
 }
+
+/**
+ * Cajeado: zona del perfil rebajada `depth` mm desde una de las caras.
+ * face 'base' = cara en w=0 (origen del plano); 'top' = cara en w=espesor.
+ * El contorno puede tocar el borde de la pieza (ranura abierta).
+ */
+export interface Pocket { name: string; outline: V2[]; depth: number; face: 'base' | 'top' }
 
 export type ParamType = 'number' | 'int' | 'bool' | 'choice';
 

@@ -1,6 +1,7 @@
 import wasmUrl from 'rhino3dm/rhino3dm.wasm?url';
 import { bounds3, normal } from '../core/geom';
 import { placedProfile, type NestResult } from '../core/nesting';
+import { partLayers } from '../core/pockets';
 import type { Part, Project, V2 } from '../core/types';
 
 let rhinoPromise: Promise<any> | null = null;
@@ -40,18 +41,34 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
   for (const p of parts) {
     const mat = project.fab.materials.find((m) => m.id === p.material);
     const li = layer(`Piezas · ${p.role}`, mat?.color ?? '#999999');
-    const crv = curve(p.profile.map(([x, y]) => [x, y, 0]));
-    const ex = rh.Extrusion.create(crv, p.thickness, true);
-    if (!ex) continue;
-    for (const h of p.holes ?? []) ex.addInnerProfile(curve(h.map(([x, y]) => [x, y, 0])));
     const n = normal(p.plane);
     // Extrusion.create extruye hacia +Z del plano de la curva; se mapea WorldXY → plano de la pieza
-    ex.transform(rh.Transform.planeToPlane(worldXY, { origin: p.plane.o, xAxis: p.plane.x, yAxis: p.plane.y, zAxis: n }));
-    const a = new rh.ObjectAttributes();
-    a.layerIndex = li; a.name = p.name;
-    a.setUserString('trazo:id', p.id); a.setUserString('trazo:rol', p.role);
-    a.setUserString('trazo:material', mat?.name ?? p.material); a.setUserString('trazo:espesor_mm', String(p.thickness));
-    doc.objects().add(ex, a);
+    const toPart = rh.Transform.planeToPlane(worldXY, { origin: p.plane.o, xAxis: p.plane.x, yAxis: p.plane.y, zAxis: n });
+    // Piezas con cajeados: una extrusión por capa (zona rebajada más delgada). En Rhino: _BooleanUnion para un solo sólido.
+    const layersOf = partLayers(p);
+    layersOf.forEach((l, i) => {
+      const ex = rh.Extrusion.create(curve(l.outer.map(([x, y]) => [x, y, 0])), l.w1 - l.w0, true);
+      if (!ex) return;
+      for (const h of l.holes) ex.addInnerProfile(curve(h.map(([x, y]) => [x, y, 0])));
+      ex.transform(rh.Transform.translationXYZ(0, 0, l.w0));
+      ex.transform(toPart);
+      const a = new rh.ObjectAttributes();
+      a.layerIndex = li; a.name = layersOf.length > 1 ? `${p.name} (capa ${i + 1}/${layersOf.length})` : p.name;
+      a.setUserString('trazo:id', p.id); a.setUserString('trazo:rol', p.role);
+      a.setUserString('trazo:material', mat?.name ?? p.material); a.setUserString('trazo:espesor_mm', String(p.thickness));
+      for (const k of p.pockets ?? []) a.setUserString(`trazo:cajeado:${k.name}`, `prof ${k.depth} mm, cara ${k.face}`);
+      doc.objects().add(ex, a);
+    });
+    // contorno de cada cajeado en el fondo de la ranura (trayectoria para CAM)
+    for (const k of p.pockets ?? []) {
+      const w = k.face === 'base' ? k.depth : p.thickness - k.depth;
+      const c = curve(k.outline.map(([x, y]) => [x, y, 0]));
+      c.transform(rh.Transform.translationXYZ(0, 0, w));
+      c.transform(toPart);
+      const a = new rh.ObjectAttributes();
+      a.layerIndex = layer(`CNC · Cajeado ${k.depth} mm`, '#0e9f6e'); a.name = `${p.name} · ${k.name}`;
+      doc.objects().add(c, a);
+    }
   }
 
   // Perfiles de corte anidados, desplazados a la derecha del modelo
@@ -65,6 +82,10 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
     for (const pl of nest.placements.filter((p) => p.sheet === s)) {
       add(placedProfile(pl, pl.part.profile), lCut, pl.part.name);
       for (const h of pl.part.holes ?? []) add(placedProfile(pl, h), lHole, `${pl.part.name} vaciado`);
+      for (const k of pl.part.pockets ?? []) {
+        if (pl.flipped ? k.face !== 'base' : k.face !== 'top') continue; // solo los que quedan boca arriba
+        add(placedProfile(pl, k.outline), layer(`CNC · Cajeado ${k.depth} mm`, '#0e9f6e'), `${pl.part.name} · ${k.name}`);
+      }
     }
   }
 

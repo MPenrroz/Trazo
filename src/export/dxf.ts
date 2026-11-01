@@ -19,9 +19,14 @@ class Dxf {
   }
 }
 
+/** Capa por profundidad, convención habitual para asignar estrategias en VCarve/Fusion/RhinoCAM. */
+export const pocketLayer = (depth: number) => `CAJEADO_${String(depth).replace('.', '_')}MM`;
+
 /** Layout de corte listo para CAM: un tablero tras otro a lo largo de X. */
 export function nestingDxf(nr: NestResult): string {
   const d = new Dxf().layer('TABLERO', 8).layer('CORTE_EXTERIOR', 1).layer('CORTE_INTERIOR', 5).layer('ETIQUETAS', 3);
+  const depths = new Set(nr.placements.flatMap((p) => (p.part.pockets ?? []).map((k) => k.depth)));
+  for (const dep of depths) d.layer(pocketLayer(dep), 4);
   const [SW, SH] = nr.sheetSize;
   for (let s = 0; s < nr.sheets; s++) {
     const ox = s * (SW + 200);
@@ -29,7 +34,12 @@ export function nestingDxf(nr: NestResult): string {
     for (const pl of nr.placements.filter((p) => p.sheet === s)) {
       d.poly(placedProfile(pl, pl.part.profile).map(([x, y]) => [x + ox, y]), 'CORTE_EXTERIOR');
       for (const h of pl.part.holes ?? []) d.poly(placedProfile(pl, h).map(([x, y]) => [x + ox, y]), 'CORTE_INTERIOR');
-      d.text([ox + pl.x + 10, pl.y + 10], 12, `${pl.part.name} e=${pl.part.thickness}`, 'ETIQUETAS');
+      // cajeados: con la pieza espejada (flipped) los de la cara 'base' quedan boca arriba
+      for (const k of pl.part.pockets ?? []) {
+        const up = pl.flipped ? k.face === 'base' : k.face === 'top';
+        if (up) d.poly(placedProfile(pl, k.outline).map(([x, y]) => [x + ox, y]), pocketLayer(k.depth));
+      }
+      d.text([ox + pl.x + 10, pl.y + 10], 12, `${pl.part.name} e=${pl.part.thickness}${pl.flipped ? ' (cara interior arriba)' : ''}`, 'ETIQUETAS');
     }
   }
   return d.toString();

@@ -1,7 +1,13 @@
 import { bounds2 } from './geom';
 import type { Part, V2 } from './types';
 
-export interface Placement { part: Part; sheet: number; x: number; y: number; rotated: boolean; w: number; h: number }
+/**
+ * flipped: la pieza se coloca espejada (vista desde su cara 'base') para que sus cajeados de esa cara
+ * queden boca arriba en la máquina.
+ */
+export interface Placement { part: Part; sheet: number; x: number; y: number; rotated: boolean; flipped: boolean; w: number; h: number }
+
+export const needsFlip = (p: Part) => !!p.pockets?.some((k) => k.face === 'base');
 export interface NestResult { sheets: number; placements: Placement[]; unplaced: Part[]; sheetSize: V2 }
 
 /**
@@ -26,15 +32,15 @@ export function nest(parts: Part[], sheet: V2, gap: number, margin = 10): NestRe
     let placed = false;
     for (let s = 0; s < sheets.length && !placed; s++) {
       for (const sh of sheets[s]) {
-        if (sh.x + w <= W && h <= sh.h) { placements.push({ part: it.p, sheet: s, x: margin + sh.x, y: margin + sh.y, rotated: rot, w: w - gap, h: h - gap }); sh.x += w; placed = true; break; }
+        if (sh.x + w <= W && h <= sh.h) { placements.push({ part: it.p, sheet: s, x: margin + sh.x, y: margin + sh.y, rotated: rot, flipped: needsFlip(it.p), w: w - gap, h: h - gap }); sh.x += w; placed = true; break; }
       }
       if (!placed) {
         const last = sheets[s][sheets[s].length - 1];
         const y = last ? last.y + last.h : 0;
-        if (y + h <= H) { sheets[s].push({ y, h, x: w }); placements.push({ part: it.p, sheet: s, x: margin, y: margin + y, rotated: rot, w: w - gap, h: h - gap }); placed = true; }
+        if (y + h <= H) { sheets[s].push({ y, h, x: w }); placements.push({ part: it.p, sheet: s, x: margin, y: margin + y, rotated: rot, flipped: needsFlip(it.p), w: w - gap, h: h - gap }); placed = true; }
       }
     }
-    if (!placed) { sheets.push([{ y: 0, h, x: w }]); placements.push({ part: it.p, sheet: sheets.length - 1, x: margin, y: margin, rotated: rot, w: w - gap, h: h - gap }); }
+    if (!placed) { sheets.push([{ y: 0, h, x: w }]); placements.push({ part: it.p, sheet: sheets.length - 1, x: margin, y: margin, rotated: rot, flipped: needsFlip(it.p), w: w - gap, h: h - gap }); }
   }
   return { sheets: sheets.length, placements, unplaced, sheetSize: sheet };
 }
@@ -43,7 +49,7 @@ export function nest(parts: Part[], sheet: V2, gap: number, margin = 10): NestRe
 export function placedProfile(pl: Placement, pts: V2[]): V2[] {
   const b = bounds2(pl.part.profile);
   return pts.map(([u, v]) => {
-    const x = u - b.x0, y = v - b.y0;
+    const x = pl.flipped ? b.x1 - u : u - b.x0, y = v - b.y0;
     return pl.rotated ? [pl.x + y, pl.y + (b.w - x)] as V2 : [pl.x + x, pl.y + y] as V2;
   });
 }
