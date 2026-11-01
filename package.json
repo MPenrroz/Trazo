@@ -1,0 +1,23 @@
+{
+  "name": "trazo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Trazo: del boceto a mano al producto paramétrico fabricable y configurable.",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "rhino3dm": "^8.17.0",
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.170.0",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.1.4"
+  }
+}
