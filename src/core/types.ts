@@ -93,8 +93,8 @@ export interface FabMethod {
 
 export type SketchEl =
   | { id: string; kind: 'free'; pts: V2[] }
-  | { id: string; kind: 'poly'; pts: V2[]; closed: boolean; smooth?: boolean }
-  | { id: string; kind: 'circle'; c: V2; r: number }
+  | { id: string; kind: 'poly'; pts: V2[]; closed: boolean; smooth?: boolean; name?: string }
+  | { id: string; kind: 'circle'; c: V2; r: number; name?: string }
   | { id: string; kind: 'dim'; a: V2; b: V2 };
 
 export interface SketchDoc {
@@ -105,8 +105,10 @@ export interface SketchDoc {
   /** mm por píxel del lienzo (calibración de escala). */
   mmPerPx: number;
   calibrated: boolean;
-  /** Elemento cerrado usado como perfil del producto. */
+  /** Silueta usada como perfil por la plantilla Costillas. */
   profileId?: string;
+  /** Eje de simetría vertical (x en px de lienzo). */
+  symmetry?: { on: boolean; x: number };
 }
 
 export interface RefImage { id: string; src: string; caption: string; tag: string }

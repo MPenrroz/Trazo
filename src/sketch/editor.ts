@@ -1,8 +1,9 @@
 import { d2, round, uid } from '../core/geom';
 import type { SketchDoc, SketchEl, V2 } from '../core/types';
-import { distToEl, fitStroke, pointInPoly, snapPoints } from './fit';
+import { distToEl, fitStroke, mergeCollinear, pointInPoly, snapPoints } from './fit';
+import { mirrorClose, mirrorEl, segmentAt, translateEl, vertexAt } from './ops';
 
-export type Tool = 'smart' | 'free' | 'dim' | 'scale' | 'erase' | 'pick' | 'pan';
+export type Tool = 'smart' | 'edit' | 'free' | 'dim' | 'scale' | 'erase' | 'pick' | 'pan';
 
 export interface EditorHooks {
   doc(): SketchDoc;
@@ -10,7 +11,15 @@ export interface EditorHooks {
   askScale(px: number, fromDim?: boolean): Promise<number | null>;
   /** Primer trazo del lienzo (para sugerir calibrar la escala). */
   firstStroke?(): void;
+  /** Cambió el elemento seleccionado (herramienta Editar). */
+  selection?(el: SketchEl | null): void;
+  /** Pide un largo en mm (tocar un lado o una cota). Devuelve null si se cancela. */
+  askLength?(title: string, current: number): Promise<number | null>;
+  /** Tocar un lado para escribir su medida (lo resuelve la vista con ops.stretchSegment). */
+  setSegment?(id: string, index: number): void;
 }
+
+type EditDrag = { mode: 'vertex' | 'move' | 'radius' | 'axis'; id: string; index: number; start: V2; before: SketchEl[]; axis0: number; moved: boolean; hitSeg: number };
 
 /**
  * Lienzo vectorial pensado para Apple Pencil:
@@ -23,6 +32,8 @@ export class SketchEditor {
   fingerDraws = false;
   snapAngle = true;
   showLengths = true;
+  /** Resaltar en naranjo la silueta usada como perfil (solo plantilla Costillas). */
+  showProfile = true;
   private ctx = this.canvas.getContext('2d')!;
   private view = { x: 40, y: 40, s: 1 };
   private stroke: V2[] | null = null;
@@ -36,6 +47,9 @@ export class SketchEditor {
   private ro: ResizeObserver;
   private spaceDown = false;
   private panStart: { p: V2; view: { x: number; y: number; s: number } } | null = null;
+  /** Elemento seleccionado con la herramienta Editar. */
+  selected: string | null = null;
+  private drag: EditDrag | null = null;
 
   constructor(private host: HTMLElement, private hooks: EditorHooks) {
     this.canvas.className = 'sketch-canvas';
@@ -106,6 +120,7 @@ export class SketchEditor {
     if (this.tool === 'pan' || e.button === 1 || this.spaceDown) { this.panStart = { p, view: { ...this.view } }; return; }
     if (!this.isDrawPointer(e) || e.button > 0) return;
     const w = this.toWorld(p);
+    if (this.tool === 'edit') { this.editDown(w); return; }
     if (this.tool === 'erase') { this.eraseAt(w); this.stroke = []; return; }
     if (this.tool === 'pick') { this.pickAt(w); return; }
     this.stroke = [w];
@@ -140,6 +155,7 @@ export class SketchEditor {
       return;
     }
     if (this.panStart) { this.doPan(p); return; }
+    if (this.drag) { this.editMove(this.toWorld(p)); return; }
     if (!this.stroke) return;
     const evs = (e as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] }).getCoalescedEvents?.() ?? [e];
     for (const ev of evs) {
@@ -160,12 +176,18 @@ export class SketchEditor {
   private async up(e: PointerEvent, cancel = false) {
     if (this.touches.has(e.pointerId)) { this.touches.delete(e.pointerId); this.startGesture(); if (!this.touches.size) this.panStart = null; return; }
     if (this.panStart) { this.panStart = null; return; }
+    if (this.drag) { await this.editUp(cancel); return; }
     const stroke = this.stroke; this.stroke = null;
     if (!stroke || cancel || this.tool === 'erase') { this.render(); return; }
     const doc = this.hooks.doc();
     const tolPx = 14 / this.view.s;
+    const sym = doc.symmetry?.on ? doc.symmetry.x : null;
     if (this.tool === 'free') {
-      if (stroke.length > 1) this.commit((d) => d.elements.push({ id: uid('f'), kind: 'free', pts: stroke }), 'Trazo libre');
+      if (stroke.length > 1) this.commit((d) => {
+        const el: SketchEl = { id: uid('f'), kind: 'free', pts: stroke };
+        d.elements.push(el);
+        if (sym !== null) d.elements.push(mirrorEl(el, sym, uid('f')));
+      }, 'Trazo libre');
     } else if (this.tool === 'dim' || this.tool === 'scale') {
       if (stroke.length < 2) return this.render();
       const pts = snapPoints(doc.elements);
@@ -186,11 +208,25 @@ export class SketchEditor {
         if (mm && mm > 0) this.hooks.change((d) => { d.mmPerPx = mm / px; d.calibrated = true; }, 'Escala calibrada');
       }
     } else {
-      const el = fitStroke(stroke, { eps: 3 / this.view.s, closeTol: tolPx * 1.4, snapAngle: this.snapAngle, snapPts: snapPoints(doc.elements), snapTol: tolPx });
+      let el = fitStroke(stroke, { eps: 3 / this.view.s, closeTol: tolPx * 1.4, snapAngle: this.snapAngle, snapPts: snapPoints(doc.elements), snapTol: tolPx });
       if (el && !doc.elements.length) this.hooks.firstStroke?.();
-      if (el) this.commit((d) => {
-        d.elements.push(el);
-        if ((el.kind === 'circle' || (el.kind === 'poly' && el.closed)) && !d.profileId) d.profileId = el.id;
+      // simetría: media silueta que empieza y termina en el eje → silueta completa; otro trazo → copia reflejada
+      let copy: SketchEl | null = null;
+      if (el && sym !== null) {
+        const closedHalf = el.kind === 'poly' && !el.closed ? mirrorClose(el.pts, sym, tolPx * 1.5) : null;
+        // sin puntos sobrantes sobre el eje (los lados que cruzan el eje quedan de un tramo)
+        if (closedHalf && el.kind === 'poly') el = { ...el, pts: el.smooth ? closedHalf : mergeCollinear(closedHalf, true, 2), closed: true };
+        else {
+          const pts = el.kind === 'circle' ? [el.c] : el.kind === 'dim' ? [el.a, el.b] : el.pts;
+          const cx = pts.reduce((s, q) => s + q[0], 0) / pts.length;
+          if (Math.abs(cx - sym) > tolPx) copy = mirrorEl(el, sym, uid('m'));
+        }
+      }
+      const fin = el;
+      if (fin) this.commit((d) => {
+        d.elements.push(fin);
+        if (copy) d.elements.push(copy);
+        if ((fin.kind === 'circle' || (fin.kind === 'poly' && fin.closed)) && !d.profileId) d.profileId = fin.id;
       }, 'Tinta inteligente');
     }
     this.render();
@@ -201,15 +237,129 @@ export class SketchEditor {
     this.redoStack = [];
     this.hooks.change(fn, reason);
   }
-  undo() { const prev = this.undoStack.pop(); if (!prev) return; this.redoStack.push(structuredClone(this.hooks.doc().elements)); this.hooks.change((d) => { d.elements = prev; }, 'Deshacer'); this.render(); }
-  redo() { const nxt = this.redoStack.pop(); if (!nxt) return; this.undoStack.push(structuredClone(this.hooks.doc().elements)); this.hooks.change((d) => { d.elements = nxt; }, 'Rehacer'); this.render(); }
+  undo() { const prev = this.undoStack.pop(); if (!prev) return; this.redoStack.push(structuredClone(this.hooks.doc().elements)); this.hooks.change((d) => { d.elements = prev; }, 'Deshacer'); this.keepSelection(); }
+  redo() { const nxt = this.redoStack.pop(); if (!nxt) return; this.undoStack.push(structuredClone(this.hooks.doc().elements)); this.hooks.change((d) => { d.elements = nxt; }, 'Rehacer'); this.keepSelection(); }
+  private keepSelection() { if (this.selected && !this.hooks.doc().elements.some((e) => e.id === this.selected)) this.select(null); else { this.hooks.selection?.(this.hooks.doc().elements.find((e) => e.id === this.selected) ?? null); this.render(); } }
   clear() { this.commit((d) => { d.elements = []; d.profileId = undefined; }, 'Limpiar'); this.render(); }
+
+  // ---------------------------------------------------------------- herramienta Editar
+  /** Elemento bajo el punto: primero formas cerradas (por dentro), luego líneas y cotas (por cercanía). */
+  private hitEl(w: V2): SketchEl | null {
+    const doc = this.hooks.doc();
+    const tol = 12 / this.view.s;
+    const els = [...doc.elements].reverse();
+    return els.find((e) => distToEl(w, e) < tol)
+      ?? els.find((e) => (e.kind === 'circle' ? d2(w, e.c) <= e.r : e.kind === 'poly' && e.closed && pointInPoly(w, e.pts)))
+      ?? null;
+  }
+
+  select(id: string | null) {
+    this.selected = id;
+    this.hooks.selection?.(id ? this.hooks.doc().elements.find((e) => e.id === id) ?? null : null);
+    this.render();
+  }
+
+  private editDown(w: V2) {
+    const doc = this.hooks.doc();
+    const tol = 14 / this.view.s;
+    const before = structuredClone(doc.elements);
+    const base = { start: w, before, axis0: doc.symmetry?.x ?? 0, moved: false, hitSeg: -1 };
+    const sel = doc.elements.find((e) => e.id === this.selected);
+    if (sel?.kind === 'poly' && !sel.smooth) {
+      const vi = vertexAt(sel.pts, w, tol);
+      if (vi >= 0) { this.drag = { ...base, mode: 'vertex', id: sel.id, index: vi }; return; }
+    }
+    if (sel?.kind === 'circle' && Math.abs(d2(w, sel.c) - sel.r) < tol) { this.drag = { ...base, mode: 'radius', id: sel.id, index: 0 }; return; }
+    if (sel?.kind === 'dim') {
+      const vi = vertexAt([sel.a, sel.b], w, tol);
+      if (vi >= 0) { this.drag = { ...base, mode: 'vertex', id: sel.id, index: vi }; return; }
+    }
+    const hit = this.hitEl(w);
+    if (hit) {
+      const seg = hit.kind === 'poly' && !hit.smooth && hit.id === this.selected ? segmentAt(hit.pts, hit.closed, w, tol) : -1;
+      this.drag = { ...base, mode: 'move', id: hit.id, index: 0, hitSeg: seg };
+      return;
+    }
+    if (doc.symmetry?.on && Math.abs(w[0] - doc.symmetry.x) < tol) { this.drag = { ...base, mode: 'axis', id: '', index: 0 }; return; }
+    this.select(null);
+  }
+
+  private editMove(w: V2) {
+    const g = this.drag!;
+    const dx = w[0] - g.start[0], dy = w[1] - g.start[1];
+    if (!g.moved && Math.hypot(dx, dy) * this.view.s < 4) return;
+    g.moved = true;
+    const doc = this.hooks.doc();
+    if (g.mode === 'axis') { doc.symmetry = { on: true, x: g.axis0 + dx }; this.render(); return; }
+    const i = doc.elements.findIndex((e) => e.id === g.id);
+    const orig = g.before.find((e) => e.id === g.id);
+    if (i < 0 || !orig) return;
+    if (g.mode === 'move') doc.elements[i] = translateEl(orig, dx, dy);
+    else if (g.mode === 'radius' && orig.kind === 'circle') doc.elements[i] = { ...orig, r: Math.max(2 / this.view.s, d2(w, orig.c)) };
+    else if (g.mode === 'vertex') {
+      // imán a vértices de otras formas
+      const others = snapPoints(g.before.filter((e) => e.id !== g.id));
+      const tol = 12 / this.view.s;
+      const near = others.find((q) => d2(q, w) < tol);
+      const p: V2 = near ? [near[0], near[1]] : [w[0], w[1]];
+      if (orig.kind === 'dim') doc.elements[i] = g.index === 0 ? { ...orig, a: p } : { ...orig, b: p };
+      else if (orig.kind === 'poly') { const pts = orig.pts.map((q) => [q[0], q[1]] as V2); pts[g.index] = p; doc.elements[i] = { ...orig, pts }; }
+    }
+    this.render();
+  }
+
+  private async editUp(cancel: boolean) {
+    const g = this.drag!;
+    this.drag = null;
+    const doc = this.hooks.doc();
+    if (cancel) { doc.elements = g.before; this.render(); return; }
+    if (g.moved) {
+      // el arrastre ya modificó el documento: se registra para deshacer y se guarda
+      this.undoStack.push(g.before);
+      this.redoStack = [];
+      this.hooks.change(() => { /* cambios ya aplicados */ }, g.mode === 'axis' ? 'Eje de simetría' : 'Editar');
+      if (g.mode !== 'axis' && this.selected !== g.id) this.select(g.id); else this.render();
+      return;
+    }
+    // toque sin arrastre
+    const el = doc.elements.find((e) => e.id === g.id);
+    if (!el) return;
+    if (el.kind === 'dim' && this.selected === el.id && this.hooks.askLength) {
+      const cur = d2(el.a, el.b) * doc.mmPerPx;
+      const mm = await this.hooks.askLength(doc.calibrated ? 'Medida real de esta cota (mm). Se ajusta la escala de todo el boceto.' : 'Medida real de esta cota (mm). Con esto queda calibrada la escala.', Math.round(cur));
+      if (mm && mm > 0) this.hooks.change((d) => { d.mmPerPx = mm / d2(el.a, el.b); d.calibrated = true; }, 'Escala calibrada');
+      this.render();
+      return;
+    }
+    if (g.hitSeg >= 0 && this.selected === el.id) { this.hooks.setSegment?.(el.id, g.hitSeg); return; }
+    this.select(el.id);
+  }
+
+  /** Aplica un cambio de geometría con deshacer (usado por la vista: medida de lado, reflejar, duplicar). */
+  apply(fn: (d: SketchDoc) => void, reason: string) { this.commit(fn, reason); this.render(); }
+
+  /** Rectángulo con medidas exactas (mm) en el centro de la vista. */
+  addRect(wMm: number, hMm: number) {
+    const doc = this.hooks.doc();
+    const k = doc.mmPerPx || 1;
+    const w = wMm / k, hh = hMm / k;
+    const c = this.toWorld([this.canvas.clientWidth / 2, this.canvas.clientHeight / 2]);
+    const id = uid('p');
+    this.apply((d) => { d.elements.push({ id, kind: 'poly', closed: true, pts: [[c[0] - w / 2, c[1] - hh / 2], [c[0] + w / 2, c[1] - hh / 2], [c[0] + w / 2, c[1] + hh / 2], [c[0] - w / 2, c[1] + hh / 2]] }); }, 'Rectángulo');
+    this.select(id);
+  }
+
+  /** Zoom actual (px de pantalla por px de lienzo). */
+  viewScale() { return this.view.s; }
+
+  /** Centro de la vista actual en px de lienzo (para ubicar el eje de simetría). */
+  viewCenter(): V2 { return this.toWorld([this.canvas.clientWidth / 2, this.canvas.clientHeight / 2]); }
 
   private eraseAt(w: V2) {
     const doc = this.hooks.doc();
     const tol = 10 / this.view.s;
     const hit = doc.elements.find((e) => distToEl(w, e) < tol);
-    if (hit) this.commit((d) => { d.elements = d.elements.filter((e) => e.id !== hit.id); if (d.profileId === hit.id) d.profileId = undefined; }, 'Borrar');
+    if (hit) { this.commit((d) => { d.elements = d.elements.filter((e) => e.id !== hit.id); if (d.profileId === hit.id) d.profileId = undefined; }, 'Borrar'); if (this.selected === hit.id) this.select(null); }
   }
   private pickAt(w: V2) {
     const doc = this.hooks.doc();
@@ -234,7 +384,14 @@ export class SketchEditor {
     }
     this.grid(doc, px);
 
-    for (const e of doc.elements) this.drawEl(e, doc, px, e.id === doc.profileId);
+    if (doc.symmetry?.on) {
+      const [, y0] = this.toWorld([0, 0]), [, y1] = this.toWorld([0, this.canvas.clientHeight]);
+      ctx.save(); ctx.strokeStyle = '#7c3aed'; ctx.lineWidth = 1.2 * px; ctx.setLineDash([8 * px, 6 * px]);
+      ctx.beginPath(); ctx.moveTo(doc.symmetry.x, y0); ctx.lineTo(doc.symmetry.x, y1); ctx.stroke(); ctx.restore();
+    }
+    for (const e of doc.elements) this.drawEl(e, doc, px, this.showProfile && e.id === doc.profileId);
+    const sel = doc.elements.find((e) => e.id === this.selected);
+    if (sel && this.tool === 'edit') this.drawSelection(sel, px);
     if (this.stroke && this.stroke.length > 1) {
       ctx.strokeStyle = this.tool === 'scale' ? '#d97706' : this.tool === 'dim' ? '#2563eb' : '#1f2937';
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -243,6 +400,25 @@ export class SketchEditor {
         ctx.beginPath(); ctx.moveTo(...this.stroke[i - 1]); ctx.lineTo(...this.stroke[i]); ctx.stroke();
       }
     }
+  }
+
+  private drawSelection(e: SketchEl, px: number) {
+    const { ctx } = this;
+    ctx.save();
+    ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 3 * px; ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    if (e.kind === 'circle') ctx.arc(e.c[0], e.c[1], e.r, 0, Math.PI * 2);
+    else if (e.kind === 'dim') { ctx.moveTo(...e.a); ctx.lineTo(...e.b); }
+    else { e.pts.forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); if (e.kind === 'poly' && e.closed) ctx.closePath(); }
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    // manillas de vértices (tamaño constante en pantalla)
+    const handles: V2[] = e.kind === 'poly' && !e.smooth ? e.pts : e.kind === 'dim' ? [e.a, e.b] : e.kind === 'circle' ? [[e.c[0] + e.r, e.c[1]]] : [];
+    for (const p of handles) {
+      ctx.beginPath(); ctx.arc(p[0], p[1], 7 * px, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2 * px; ctx.strokeStyle = '#2563eb'; ctx.stroke();
+    }
+    ctx.restore();
   }
 
   private grid(doc: SketchDoc, px: number) {

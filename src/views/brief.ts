@@ -19,7 +19,7 @@ export function briefView(root: HTMLElement) {
       h('button', { class: 'ghost', title: 'Quitar', onclick: () => { store.update((x) => x.functions.splice(i, 1), 'brief'); renderFuncs(); } }, '×'))));
   };
   renderFuncs();
-  const newFunc = h('input', { placeholder: 'Ej: Repisas regulables en altura · Se arma sin herramientas…' });
+  const newFunc = h('input', { placeholder: 'Escribe una funcionalidad y pulsa Agregar (o Enter)', enterkeyhint: 'done' });
   const addFunc = () => { if (!newFunc.value.trim()) return; store.update((x) => x.functions.push(newFunc.value.trim()), 'brief'); newFunc.value = ''; renderFuncs(); };
   newFunc.addEventListener('keydown', (e) => { if (e.key === 'Enter') addFunc(); });
 

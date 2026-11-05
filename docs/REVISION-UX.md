@@ -31,6 +31,13 @@ Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 - C1/C2 — sin tipología preseleccionada: proyectos nuevos en diseño libre; ejemplos visibles; "Pasar a diseño libre" para estantería y mesa.
 - Estado vacío del diseño libre con acción principal "Agregar la primera pieza"; sin precio ni "Factible" cuando no hay piezas.
 
+**Bloque 2 · Concepto → Boceto (5 nov):**
+- B1 — herramienta **Editar**: tocar una forma la selecciona; arrastrar puntos (con imán a otras formas); arrastrar desde adentro la mueve; tocar un lado → escribir su medida (estira la forma conservando ángulos); tocar una cota seleccionada → su medida real recalibra la escala. Reflejar, duplicar, borrar y deshacer.
+- B3 — un solo concepto, **silueta**: toda forma cerrada, con nombre editable, que muestra en qué piezas se usa; "Usar como perfil" solo aparece en la plantilla Costillas. Se quitó el cambio silencioso a Costillas del botón "Usar perfil".
+- B4 — **simetría** con eje vertical arrastrable: media silueta que empieza y termina en el eje se completa sola; otros trazos se copian reflejados.
+- B7 (parcial) — **rectángulo con medidas** exactas.
+- C3 — pista en Funcionalidades; C4 — en vertical las imágenes van arriba.
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |

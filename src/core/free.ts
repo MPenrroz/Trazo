@@ -90,7 +90,8 @@ export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
     const norm = (pts: V2[]): V2[] => pts.map(([x, y]) => [(x - bb.x0) / (bb.w || 1), (bb.y1 - y) / (bb.h || 1)] as V2);
     const holes = polys.filter((h) => parentOf.get(h.e.id) === s.e.id).map((h) => ccw(norm(h.poly)).reverse());
     const size: V2 = [bb.w * sk.mmPerPx, bb.h * sk.mmPerPx];
-    out[s.e.id] = { outline: ccw(norm(s.poly)), holes, size, label: `Forma ${k}${holes.length ? ` (${holes.length} calado${holes.length > 1 ? 's' : ''})` : ''}` };
+    const nm = (s.e.kind === 'poly' || s.e.kind === 'circle') && s.e.name ? s.e.name : `Silueta ${k}`;
+    out[s.e.id] = { outline: ccw(norm(s.poly)), holes, size, label: `${nm}${holes.length ? ` (${holes.length} calado${holes.length > 1 ? 's' : ''})` : ''}` };
   }
   return out;
 }

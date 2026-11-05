@@ -348,3 +348,44 @@ describe('ejemplos de diseño libre equivalentes a las plantillas', () => {
     }
   }
 });
+
+import { mirrorClose, mirrorEl, segmentAt, stretchSegment, vertexAt } from '../src/sketch/ops';
+
+describe('edición del boceto', () => {
+  const rectPts: V2[] = [[0, 0], [100, 0], [100, 50], [0, 50]];
+  it('estirar un lado mantiene el rectángulo', () => {
+    const r = stretchSegment(rectPts, 0, 160, true);
+    expect(r).toEqual([[0, 0], [160, 0], [160, 50], [0, 50]]);
+    const v = stretchSegment(rectPts, 1, 80, true); // lado vertical derecho: 50 → 80 (hacia abajo en pantalla)
+    expect(v).toEqual([[0, 0], [100, 0], [100, 80], [0, 80]]);
+  });
+  it('estirar un lado de un polígono en L conserva sus ángulos', () => {
+    const L: V2[] = [[0, 0], [60, 0], [60, 20], [20, 20], [20, 80], [0, 80]];
+    const r = stretchSegment(L, 0, 100, true);
+    expect(r).toEqual([[0, 0], [100, 0], [100, 20], [20, 20], [20, 80], [0, 80]]);
+  });
+  it('media silueta sobre el eje se cierra reflejada', () => {
+    const half: V2[] = [[101, 0], [150, 10], [160, 80], [99, 90]];
+    const full = mirrorClose(half, 100, 4)!;
+    expect(full[0]).toEqual([100, 0]);
+    expect(full[3]).toEqual([100, 90]);
+    expect(full).toHaveLength(6);
+    expect(full[4]).toEqual([40, 80]);
+    expect(mirrorClose([[50, 0], [150, 10]], 100, 4)).toBeNull(); // no empieza en el eje
+  });
+  it('reflejar un círculo y ubicar vértices y lados', () => {
+    const c = mirrorEl({ id: 'a', kind: 'circle', c: [130, 10], r: 5 }, 100, 'b');
+    expect(c.kind === 'circle' && c.c).toEqual([70, 10]);
+    expect(vertexAt(rectPts, [98, 3], 6)).toBe(1);
+    expect(segmentAt(rectPts, true, [50, 48], 6)).toBe(2);
+    expect(segmentAt(rectPts, true, [50, 25], 6)).toBe(-1);
+  });
+});
+
+import { mergeCollinear } from '../src/sketch/fit';
+describe('simetría sin puntos sobrantes', () => {
+  it('el rectángulo reflejado queda con 4 vértices', () => {
+    const full = mirrorClose([[100, 0], [160, 0], [160, 80], [100, 80]], 100, 3)!;
+    expect(mergeCollinear(full, true, 2)).toHaveLength(4);
+  });
+});
