@@ -92,9 +92,6 @@ Usuario principal: arquitecto o diseñador. Usuario secundario: el cliente final
 **Tomadas (5 nov):**
 1. **El diseño libre es el centro.** Los proyectos nuevos parten en diseño libre. Estantería, mesa y cama nido son ejemplos de diseño libre (editables pieza por pieza). Nicho y costillas quedan como "plantillas especiales" hasta que el compositor haga curvas y ranuras.
 2. **El boceto es opcional:** sirve para siluetas y calados. En la navegación aparece con círculo segmentado y "Siguiente" desde Concepto va directo al Modelo.
-
-**Pendientes:**
-
-3. ¿La tienda es una **vista previa para el arquitecto** o debe llegar a vender (pago, pedidos)? Cambia mucho el alcance.
-4. ¿Los proyectos deben **sincronizarse** entre iPad y computador dentro de la app, o basta con exportar a iCloud?
-5. ¿Fabricación cubre solo **tableros CNC/láser**, o también impresión 3D y robótica con chequeos propios? Hoy esos métodos solo cambian medidas de cama y espesor.
+3. **La tienda es una vista previa** para el arquitecto. La integración con un webshop real (pago, pedidos) viene en una etapa posterior.
+4. **Respaldo por iCloud/Archivos** (.trazo). Sin sincronización propia por ahora.
+5. **Fabricación: CNC y láser, más piezas hechas con herramientas de carpintería** (por precisar: qué máquinas y qué se verifica). Se retiran de la lista robot, 5 ejes e impresión 3D.
