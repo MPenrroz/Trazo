@@ -18,3 +18,13 @@ export async function shareOrDownload(data: BlobPart, filename: string, type = '
 }
 
 export const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'trazo';
+
+/** Varios archivos de una vez: hoja de compartir con todos (iPad) o descarga uno por uno. */
+export async function shareManyOrDownload(items: { data: BlobPart; name: string; type: string }[]) {
+  const files = items.map((i) => new File([i.data], i.name, { type: i.type }));
+  const nav = navigator as Navigator & { canShare?: (d: unknown) => boolean };
+  if (nav.canShare?.({ files })) {
+    try { await nav.share({ files, title: items.map((i) => i.name).join(', ') }); return; } catch (e) { if ((e as Error).name === 'AbortError') return; }
+  }
+  for (const f of files) { download(f, f.name, f.type); await new Promise((r) => setTimeout(r, 400)); }
+}

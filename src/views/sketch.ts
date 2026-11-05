@@ -5,6 +5,7 @@ import { sketchDxf } from '../export/dxf';
 import { SketchEditor, type Tool } from '../sketch/editor';
 import { profileFromSketch } from '../sketch/fit';
 import { ask, confirmDialog, h, pickFiles, readImage, toast } from '../ui';
+import { nextStep } from '../steps';
 
 const TOOLS: { id: Tool; label: string; icon: string; tip: string }[] = [
   { id: 'smart', label: 'Tinta inteligente', icon: '✎', tip: 'Convierte trazos en líneas rectas, rectángulos, círculos o curvas limpias.' },
@@ -27,13 +28,28 @@ export function sketchView(root: HTMLElement) {
       if (reason === 'Escala calibrada') toast(`Escala: 1 px = ${round(store.project.sketch.mmPerPx, 3)} mm`);
       updateStatus();
     },
-    askScale: async (px) => {
-      const v = await ask(`Largo real de la línea dibujada (${round(px, 0)} px), en mm:`, '1000');
+    askScale: async (px, fromDim) => {
+      const v = fromDim
+        ? await ask('¿Cuánto mide esta cota en la realidad? (mm) — así queda calibrada la escala. Cancela para omitir.', '')
+        : await ask(`Largo real de la línea dibujada (${round(px, 0)} px), en mm:`, '1000');
       return v ? Number(v.replace(',', '.')) : null;
+    },
+    firstStroke: () => {
+      if (!store.project.sketch.calibrated) toast('Consejo: indica una medida conocida con 📏 Escala o con una Cota para que todo quede en mm.');
     },
   });
 
-  const toolBtns = TOOLS.map((t) => h('button', { class: `tool ${t.id === editor.tool ? 'on' : ''}`, title: t.tip, onclick: () => { editor.tool = t.id; toolBtns.forEach((b, i) => b.classList.toggle('on', TOOLS[i].id === t.id)); updateStatus(); } }, h('span', { class: 'ico' }, t.icon), h('span', { class: 'tl' }, t.label)));
+  // en iPad no hay "hover": la ayuda de cada herramienta se muestra la primera vez que se elige
+  const seenTip = (id: string) => { try { const k = 'trazo:tip:' + id; if (localStorage.getItem(k)) return true; localStorage.setItem(k, '1'); } catch { /* */ } return false; };
+  const toolBtns = TOOLS.map((t) => h('button', { class: `tool ${t.id === editor.tool ? 'on' : ''}`, title: t.tip, 'aria-label': `${t.label}: ${t.tip}`, onclick: () => {
+    editor.tool = t.id; toolBtns.forEach((b, i) => b.classList.toggle('on', TOOLS[i].id === t.id)); updateStatus();
+    if (!seenTip(t.id)) toast(`${t.label}: ${t.tip}`);
+  } }, h('span', { class: 'ico' }, t.icon), h('span', { class: 'tl' }, t.label)));
+  // ¿esta tipología usa el boceto? (solo Costillas y Diseño libre lo convierten en piezas)
+  const usesSketch = store.project.template === 'costillas' || store.project.template === 'libre';
+  const notice = usesSketch ? null : h('div', { class: 'sk-notice' },
+    h('span', null, h('b', null, `${store.template.name} no usa el boceto para generar piezas. `), 'Puedes dibujar para pensar y compararlo en Planos; para que el dibujo se vuelva piezas, elige "Diseño libre" o "Costillas desde boceto" en Concepto.'),
+    h('a', { class: 'btn ghost sm', href: '#/concepto' }, 'Cambiar tipología'));
 
   const opacity = h('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(store.project.sketch.underlayOpacity) });
   opacity.addEventListener('input', () => { store.update((p) => { p.sketch.underlayOpacity = Number(opacity.value); }, 'sketch'); editor.render(); });
@@ -79,7 +95,9 @@ export function sketchView(root: HTMLElement) {
       h('span', { class: 'sep' }),
       h('button', { class: 'tool', onclick: () => editor.undo(), title: 'Deshacer (⌘Z)' }, h('span', { class: 'ico' }, '↶'), h('span', { class: 'tl' }, 'Deshacer')),
       h('button', { class: 'tool', onclick: () => editor.redo(), title: 'Rehacer' }, h('span', { class: 'ico' }, '↷'), h('span', { class: 'tl' }, 'Rehacer')),
-      h('button', { class: 'tool', onclick: () => editor.fit(), title: 'Encuadrar' }, h('span', { class: 'ico' }, '⤢'), h('span', { class: 'tl' }, 'Encuadrar'))),
+      h('button', { class: 'tool', onclick: () => editor.fit(), title: 'Encuadrar' }, h('span', { class: 'ico' }, '⤢'), h('span', { class: 'tl' }, 'Encuadrar')),
+      nextStep('boceto', store.project.sketch.elements.length && !store.project.sketch.calibrated ? 'Aún no calibras la escala' : undefined, true)),
+    notice,
     h('div', { class: 'sketch-body' }, stage,
       h('aside', { class: 'side' },
         h('h4', null, 'Boceto base'),

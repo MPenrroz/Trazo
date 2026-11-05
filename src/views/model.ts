@@ -3,6 +3,7 @@ import { store } from '../core/store';
 import type { ParamDef } from '../core/types';
 import { checkList, h, money, paramControl } from '../ui';
 import { Viewer } from '../viewer';
+import { nextStep } from '../steps';
 import { drawOnPiece, paramDefsEditor, piecesEditor, type PiecesEl } from './free-editor';
 import { DirectEdit, partDims } from './direct-edit';
 import { confirmDialog, toast } from '../ui';
@@ -54,7 +55,8 @@ export function modelView(root: HTMLElement) {
       h('div', null, h('small', null, 'Piezas / tableros'), h('b', null, `${parts.length} / ${a.nest.sheets}`)),
       h('div', null, h('small', null, 'Peso aprox.'), h('b', null, `${a.weightKg.toFixed(1)} kg`)),
       h('div', null, h('small', null, 'Precio tienda'), h('b', null, money(a.cost.price, store.project.pricing.currency))),
-      h('div', { class: `state ${worst}` }, worst === 'ok' ? 'Factible' : worst === 'warn' ? 'Revisar' : 'No factible'));
+      h('button', { class: `state ${worst}`, title: 'Ver avisos', onclick: () => checksEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, worst === 'ok' ? 'Factible' : worst === 'warn' ? 'Revisar' : 'No factible'),
+      nextStep('modelo', undefined, true) ?? '');
     const formulaErrors = store.buildErrors.map((msg) => ({ level: 'error' as const, msg: `Fórmula · ${msg}` }));
     checksEl.replaceChildren(checkList([...formulaErrors, ...a.checks.filter((c) => c.level !== 'info')]));
     if (free && !parts.length) checksEl.prepend(h('p', { class: 'muted' }, 'Aún no hay piezas: ve a la pestaña Piezas para armar tu producto o partir de un ejemplo.'));
@@ -69,12 +71,28 @@ export function modelView(root: HTMLElement) {
   const renderParams = () => {
     const vals = store.values;
     const mats = store.project.fab.materials;
-    paramsEl.replaceChildren(
-      h('label', { class: 'param' }, h('span', { class: 'plabel' }, 'Material'),
-        h('select', { onchange: (e: Event) => { store.update((p) => { p.materialId = (e.target as HTMLSelectElement).value; }, 'param'); refresh(); } },
-          ...mats.filter((m) => m.id !== 'tapiz').map((m) => h('option', { value: m.id, selected: m.id === store.project.materialId }, m.name)))),
-      ...grouped(store.params).map(([g, defs]) => h('fieldset', null, h('legend', null, g),
-        ...defs.map((d) => paramControl(d, vals[d.key], (v) => { store.update((p) => { p.values[d.key] = v; }, 'param'); refresh(); })))));
+    // material y espesor juntos; el espesor solo ofrece los que existen para ese material
+    const tDef = store.params.find((d) => d.key === 't' && d.type === 'choice');
+    const avail = store.material.thicknesses;
+    const tCtl = tDef ? paramControl({ ...tDef, label: 'Espesor', options: (tDef.options ?? []).filter((o) => avail.includes(Number(o.value)) || Number(o.value) === Number(vals.t)).map((o) => ({ ...o, label: avail.includes(Number(o.value)) ? o.label : `${o.label} (no disponible)` })) }, vals.t, (v) => { store.update((p) => { p.values.t = v; }, 'param'); refresh(); renderParams(); }) : null;
+    paramsEl.replaceChildren(...[
+      h('fieldset', null, h('legend', null, 'Material'),
+        h('label', { class: 'param' }, h('span', { class: 'plabel' }, 'Tablero'),
+          h('select', { onchange: (e: Event) => {
+            const id = (e.target as HTMLSelectElement).value;
+            store.update((p) => { p.materialId = id; }, 'param');
+            // si el espesor actual no existe en el nuevo material, se usa el más cercano disponible
+            const th = store.material.thicknesses, cur = Number(store.values.t);
+            if (tDef && th.length && !th.includes(cur)) {
+              const near = th.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a));
+              store.update((p) => { p.values.t = near; }, 'param');
+              toast(`${store.material.name} no viene en ${cur} mm: se usa ${near} mm.`);
+            }
+            refresh(); renderParams();
+          } }, ...mats.filter((m) => m.id !== 'tapiz').map((m) => h('option', { value: m.id, selected: m.id === store.project.materialId }, m.name)))),
+        tCtl),
+      ...grouped(store.params.filter((d) => d !== tDef)).map(([g, defs]) => h('fieldset', null, h('legend', null, g),
+        ...defs.map((d) => paramControl(d, vals[d.key], (v) => { store.update((p) => { p.values[d.key] = v; }, 'param'); refresh(); }))))].filter(Boolean) as Node[]);
   };
 
   const renderRules = () => {

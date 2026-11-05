@@ -60,8 +60,8 @@ export function shopView(root: HTMLElement, query: URLSearchParams) {
       const { parts, a } = update();
       const order = { format: 'trazo-order@1', product: spec.id, name: spec.name, values, price: a.cost.price, currency: spec.pricing.currency, size: a.size, cutList: a.cutList, parts, createdAt: new Date().toISOString() };
       download(JSON.stringify(order, null, 2), `pedido-${slug(spec.name)}.json`, 'application/json');
-      toast('Pedido generado (demo). Conecta aquí tu checkout: Shopify, WooCommerce, Stripe…');
-    } }, 'Agregar al carro');
+      toast('Pedido de prueba descargado: aún no hay pago real conectado.');
+    } }, 'Generar pedido (prueba)');
 
     const ar = h('button', { class: 'ghost', onclick: async () => {
       const usdz = await toUSDZ(partsFromSpec(spec, values), spec.fab.materials);

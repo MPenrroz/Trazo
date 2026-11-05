@@ -133,6 +133,8 @@ export interface Project {
   fab: { methods: FabMethod[]; materials: Material[] };
   createdAt: number;
   updatedAt: number;
+  /** Último respaldo exportado (.trazo.json). */
+  backupAt?: number;
 }
 
 export type CheckLevel = 'ok' | 'info' | 'warn' | 'error';

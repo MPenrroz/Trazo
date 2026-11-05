@@ -8,6 +8,23 @@ Sin errores de consola y sin desbordes horizontales.
 Prioridad: **A** bloquea o confunde a un usuario nuevo · **B** fricción clara · **C** pulido.
 Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 
+## Estado
+
+**Tanda rápida hecha (5 nov):**
+- G2 — aviso en Boceto cuando la tipología no lo usa.
+- G3 — luz libre considera divisiones como apoyos; el ejemplo abre "Factible" y la relación alto/base sobre 4 pasa a recomendación.
+- G4 — los 7 pasos siempre visibles (número; nombre solo en el activo).
+- G6 — aviso de respaldo, "Respaldar proyecto" en el menú y fecha del último respaldo.
+- G7 — "Siguiente" en cada paso.
+- B2 — la primera cota pregunta su medida real y calibra la escala; consejo al primer trazo.
+- B5 — ayuda visible la primera vez que eliges cada herramienta.
+- M1 — en iPad vertical el 3D queda fijo arriba.
+- M5 — Material y espesor juntos, solo espesores disponibles (ajuste automático al cambiar de material).
+- M6 — todos los controles a 44 px.
+- M7 — tocar el estado lleva a los avisos.
+- T1 — "Generar pedido (prueba)".
+- E1 — Exportar con 3 opciones principales (Rhino, Taller, Respaldo) y "Más formatos".
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |

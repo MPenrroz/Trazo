@@ -8,17 +8,14 @@ import { plansView } from './views/plans';
 import { shopView } from './views/shop';
 import { sketchView } from './views/sketch';
 import { confirmDialog, h, pickFiles, toast } from './ui';
+import { STEPS, nextStep } from './steps';
+import { backupProject, backupStatus } from './backup';
 
 type ViewFn = (root: HTMLElement, q: URLSearchParams) => void | (() => void);
-const ROUTES: { id: string; label: string; n: string; view: ViewFn }[] = [
-  { id: 'concepto', n: '1', label: 'Concepto', view: briefView },
-  { id: 'boceto', n: '2', label: 'Boceto', view: sketchView },
-  { id: 'modelo', n: '3', label: 'Modelo 3D', view: modelView },
-  { id: 'planos', n: '4', label: 'Planos', view: plansView },
-  { id: 'fabricacion', n: '5', label: 'Fabricación', view: fabView },
-  { id: 'tienda', n: '6', label: 'Tienda', view: shopView },
-  { id: 'exportar', n: '7', label: 'Exportar', view: exportView },
-];
+const VIEWS: Record<string, ViewFn> = { concepto: briefView, boceto: sketchView, modelo: modelView, planos: plansView, fabricacion: fabView, tienda: shopView, exportar: exportView };
+const ROUTES = STEPS.map((s) => ({ ...s, view: VIEWS[s.id] }));
+/** Vistas que se recorren con scroll: llevan "Siguiente" al pie (Boceto y Modelo lo traen integrado). */
+const FOOTER_NEXT = new Set(['concepto', 'planos', 'fabricacion', 'tienda']);
 
 const app = document.getElementById('app')!;
 const content = h('main', { class: 'content' });
@@ -56,7 +53,24 @@ const menuItems = h('div', { class: 'menu-items' },
     if (rest.length) await store.open(rest[0].id); else await store.create(newProject());
     await refreshProjects(); route();
   } }, 'Eliminar'));
+const backupInfo = h('p', { class: 'menu-note' });
+menuItems.prepend(h('button', { class: 'ghost', onclick: () => backupProject() }, 'Respaldar proyecto (.trazo)'));
+menuItems.append(backupInfo);
 const menu = h('details', { class: 'menu' }, h('summary', { title: 'Proyecto' }, '⋯'), menuItems);
+menu.addEventListener('toggle', () => { if (menu.open) backupInfo.textContent = backupStatus().text; });
+
+/** Aviso de dónde se guarda el trabajo y recordatorio de respaldo (se puede posponer 7 días). */
+const banner = h('div', { class: 'backup-banner', hidden: true });
+function renderBackupBanner() {
+  const st = backupStatus();
+  banner.hidden = !st.nag || document.body.classList.contains('public');
+  if (banner.hidden) return;
+  banner.replaceChildren(
+    h('span', null, h('b', null, 'Tus proyectos se guardan solo en este navegador. '), st.text, ' Respáldalo en iCloud o Archivos para no perderlo.'),
+    h('button', { class: 'sm', onclick: async () => { await backupProject(); renderBackupBanner(); } }, 'Respaldar ahora'),
+    h('button', { class: 'ghost sm', onclick: () => { try { localStorage.setItem(`trazo:snooze:${store.project.id}`, String(Date.now())); } catch { /* */ } renderBackupBanner(); } }, 'Más tarde'));
+}
+document.addEventListener('trazo:backup', () => renderBackupBanner());
 menuItems.addEventListener('click', () => menu.removeAttribute('open'));
 
 function route() {
@@ -65,17 +79,19 @@ function route() {
   const q = new URLSearchParams(qs ?? '');
   const public_ = r.id === 'tienda' && q.has('producto');
   document.body.classList.toggle('public', public_);
-  nav.replaceChildren(...ROUTES.map((x) => h('a', { href: `#/${x.id}`, class: x.id === r.id ? 'on' : '' }, h('i', null, x.n), h('span', null, x.label))));
+  nav.replaceChildren(...ROUTES.map((x) => h('a', { href: `#/${x.id}`, class: x.id === r.id ? 'on' : '', title: x.label, 'aria-label': `Paso ${x.n}: ${x.label}` }, h('i', null, x.n), h('span', null, x.label))));
   if (typeof unmount === 'function') unmount();
   content.replaceChildren();
   content.dataset.view = r.id;
   unmount = r.view(content, q);
+  if (FOOTER_NEXT.has(r.id) && !public_) { const n = nextStep(r.id); if (n) content.querySelector('.page')?.append(n); }
+  renderBackupBanner();
 }
 
 async function start() {
   app.append(h('header', { class: 'top' },
     h('a', { class: 'brand', href: '#/concepto' }, h('img', { src: 'icon.svg', alt: '' }), h('b', null, 'Trazo')),
-    nav, h('div', { class: 'proj' }, projSel, menu)), content);
+    nav, h('div', { class: 'proj' }, projSel, menu)), banner, content);
   // VITE_SEED=<nombre> precarga public/productos/<nombre>.trazo.json la primera vez (demos publicadas)
   const seedName = import.meta.env.VITE_SEED as string | undefined;
   const seed = seedName ? () => fetch(`productos/${seedName}.trazo.json`).then((r) => (r.ok ? r.json() : null)) : undefined;

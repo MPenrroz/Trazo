@@ -7,7 +7,9 @@ export type Tool = 'smart' | 'free' | 'dim' | 'scale' | 'erase' | 'pick' | 'pan'
 export interface EditorHooks {
   doc(): SketchDoc;
   change(fn: (d: SketchDoc) => void, reason: string): void;
-  askScale(px: number): Promise<number | null>;
+  askScale(px: number, fromDim?: boolean): Promise<number | null>;
+  /** Primer trazo del lienzo (para sugerir calibrar la escala). */
+  firstStroke?(): void;
 }
 
 /**
@@ -169,7 +171,15 @@ export class SketchEditor {
       const pts = snapPoints(doc.elements);
       const snap = (q: V2) => pts.reduce<V2>((best, c) => (d2(c, q) < d2(best, q) && d2(c, q) < tolPx ? c : best), q);
       const a = snap(stroke[0]), b = snap(stroke[stroke.length - 1]);
-      if (this.tool === 'dim') this.commit((d) => d.elements.push({ id: uid('d'), kind: 'dim', a, b }), 'Cota');
+      if (this.tool === 'dim') {
+        this.commit((d) => d.elements.push({ id: uid('d'), kind: 'dim', a, b }), 'Cota');
+        // sin escala: la primera cota puede calibrarla con su medida real
+        if (!this.hooks.doc().calibrated) {
+          const px = d2(a, b);
+          const mm = await this.hooks.askScale(px, true);
+          if (mm && mm > 0) this.hooks.change((d) => { d.mmPerPx = mm / px; d.calibrated = true; }, 'Escala calibrada');
+        }
+      }
       else {
         const px = d2(a, b);
         const mm = await this.hooks.askScale(px);
@@ -177,6 +187,7 @@ export class SketchEditor {
       }
     } else {
       const el = fitStroke(stroke, { eps: 3 / this.view.s, closeTol: tolPx * 1.4, snapAngle: this.snapAngle, snapPts: snapPoints(doc.elements), snapTol: tolPx });
+      if (el && !doc.elements.length) this.hooks.firstStroke?.();
       if (el) this.commit((d) => {
         d.elements.push(el);
         if ((el.kind === 'circle' || (el.kind === 'poly' && el.closed)) && !d.profileId) d.profileId = el.id;

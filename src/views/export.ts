@@ -1,12 +1,13 @@
 import { analyse } from '../core/analysis';
 import { store } from '../core/store';
 import { technicalDrawing } from '../drawings';
-import { download, shareOrDownload, slug } from '../export/download';
+import { download, shareManyOrDownload, shareOrDownload, slug } from '../export/download';
 import { nestingDxf, sketchDxf } from '../export/dxf';
 import { toGLB, toOBJ, toSTL, toUSDZ } from '../export/mesh';
 import { export3dm } from '../export/rhino';
 import { buildSpec } from '../export/spec';
 import { card, h, toast } from '../ui';
+import { backupProject } from '../backup';
 
 /** Paso 7 · Entregables: Rhino, CNC, AR y especificación para la tienda / Grasshopper. */
 export function exportView(root: HTMLElement) {
@@ -23,7 +24,27 @@ export function exportView(root: HTMLElement) {
   const parts = () => store.parts();
   const mats = () => store.project.fab.materials;
 
-  root.append(h('div', { class: 'page export' },
+  const analysis = () => analyse(parts(), store.method, store.material, store.project, store.project.fab.materials);
+  const main = (icon: string, title: string, desc: string, label: string, fn: () => Promise<void>) => {
+    const b = h('button', null, label);
+    b.onclick = busy(b, fn);
+    return h('div', { class: 'exp-main' }, h('span', { class: 'exp-ico' }, icon), h('b', null, title), h('p', { class: 'muted' }, desc), b);
+  };
+  const essentials = card('Lo esencial',
+    h('div', { class: 'exp-grid' },
+      main('▣', 'Para Rhino', 'Modelo .3dm con piezas por capa, perfiles de corte y parámetros. Ábrelo en Rhino en el computador.', 'Descargar .3dm', async () => {
+        const a = analysis();
+        await shareOrDownload(await export3dm(store.project, parts(), store.values, a.nest, buildSpec(false, false)), `${name()}.3dm`, 'application/octet-stream');
+      }),
+      main('✂', 'Para el taller', 'DXF de corte (piezas acomodadas en tableros) y la lámina de planos con cotas y despiece.', 'DXF + planos', async () => {
+        await shareManyOrDownload([
+          { data: nestingDxf(analysis().nest), name: `${name()}-corte.dxf`, type: 'application/dxf' },
+          { data: technicalDrawing(store.project, parts()), name: `${name()}-planos.svg`, type: 'image/svg+xml' },
+        ]);
+      }),
+      main('⟲', 'Respaldo', 'Todo el proyecto en un archivo .trazo para guardarlo en iCloud o abrirlo en otro dispositivo.', 'Respaldar', () => backupProject())));
+
+  root.append(h('div', { class: 'page export' }, essentials, h('details', { class: 'more-formats' }, h('summary', null, 'Más formatos'), h('div', { class: 'export-cols' },
     h('div', { class: 'col' },
       card('Rhino',
         item('Modelo Rhino (.3dm)', 'Sólidos por capa y rol, perfiles CNC anidados, boceto de referencia y parámetros en DocumentUserText. Abre en Rhino 7/8 (Mac/Windows) o en el visor Rhino de iPad.', 'Descargar .3dm', async () => {
@@ -44,12 +65,12 @@ export function exportView(root: HTMLElement) {
         item('Web / render (.glb)', 'Para Keyshot, Blender, Sketchfab, ShapeDiver o la web.', 'GLB', async () => download(await toGLB(parts(), mats()), `${name()}.glb`, 'model/gltf-binary')),
         item('Malla (.obj)', 'Formato universal.', 'OBJ', () => download(toOBJ(parts(), mats()), `${name()}.obj`, 'text/plain'))),
       card('Proyecto',
-        item('Proyecto Trazo completo (.trazo.json)', 'Incluye boceto, referencias, reglas y fabricación. Guárdalo en iCloud Drive para pasarlo entre iPad y computador.', 'Exportar proyecto', () => shareOrDownload(JSON.stringify(store.project), `${name()}.trazo.json`, 'application/json'), true)),
+        item('Proyecto Trazo completo (.trazo.json)', 'Incluye boceto, referencias, reglas y fabricación. Guárdalo en iCloud Drive para pasarlo entre iPad y computador.', 'Exportar proyecto', () => backupProject(), true)),
       card('Flujo sugerido iPad ↔ Rhino', h('ol', { class: 'steps' },
         h('li', null, 'Dibuja en Procreate/Concepts → comparte PNG a Trazo (o pega con ⌘V).'),
         h('li', null, 'Calca con tinta inteligente, calibra escala y elige el perfil.'),
         h('li', null, 'Ajusta parámetros y verifica factibilidad + costo.'),
         h('li', null, 'Descarga .3dm + spec a iCloud Drive → ábrelo en Rhino en el computador.'),
         h('li', null, 'Refina en Rhino/Grasshopper (uniones, cantos, herrajes) con trazo_rhino.py.'),
-        h('li', null, 'Publica el spec en la tienda con los rangos del arquitecto.'))))));
+        h('li', null, 'Publica el spec en la tienda con los rangos del arquitecto.'))))))));
 }

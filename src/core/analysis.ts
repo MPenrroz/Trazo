@@ -1,4 +1,4 @@
-import { bounds2, bounds3, d2, dot, normal, partArea, partCutLength, polyArea, polyPerimeter, reflexVertices, round } from './geom';
+import { bounds2, bounds3, d2, dot, normal, partArea, partCutLength, partVertices, polyArea, polyPerimeter, reflexVertices, round } from './geom';
 import { nest, type NestResult } from './nesting';
 import { pocketToolpath } from './pockets';
 import type { Check, FabMethod, Material, Part, Project } from './types';
@@ -47,14 +47,18 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
     if (short) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: tiene detalles menores a ${round(method.tool * 1.5, 1)} mm; la herramienta no los reproducirá.` });
     // Luz de repisas horizontales
     if (Math.abs(dot(normal(p.plane), [0, 0, 1])) > 0.9 && /Repisa|Cubierta|Techo/.test(p.role)) {
-      const span = Math.max(b.w, b.h);
+      // luz libre: se descuentan los apoyos intermedios (divisiones o patas que tocan la pieza por arriba o por abajo)
+      const span = freeSpan(p, parts);
       const ratio = span / p.thickness;
       if (ratio > material.maxSpanRatio) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: luz ${round(span, 0)} mm / espesor ${p.thickness} mm = ${round(ratio, 0)} (> ${material.maxSpanRatio} recomendado para ${material.name}). Riesgo de flecha: aumentar espesor o agregar apoyo.` });
     }
   }
   const thicknesses = [...new Set(parts.map((p) => p.thickness))];
   for (const t of thicknesses) if (!material.thicknesses.includes(t)) checks.push({ level: 'warn', msg: `${material.name} no se fabrica comúnmente en ${t} mm (disponible: ${material.thicknesses.join(', ')} mm).` });
-  if (size[2] > 0 && Math.min(size[0], size[1]) > 0 && size[2] / Math.min(size[0], size[1]) > 4) checks.push({ level: 'warn', msg: `Relación alto/base ${round(size[2] / Math.min(size[0], size[1]), 1)}: el producto puede volcar. Prever anclaje a muro.` });
+  // estabilidad: sobre 4 se recomienda anclar (habitual en libreros); sobre 6 es un riesgo real de vuelco
+  const slender = size[2] > 0 && Math.min(size[0], size[1]) > 0 ? size[2] / Math.min(size[0], size[1]) : 0;
+  if (slender > 6) checks.push({ level: 'warn', msg: `Relación alto/base ${round(slender, 1)}: riesgo de volcamiento. Anclar a muro o ensanchar la base.` });
+  else if (slender > 4) checks.push({ level: 'info', msg: `Relación alto/base ${round(slender, 1)}: se recomienda anclar a muro (herraje antivuelco).` });
 
   const nr = nest(parts, bed, method.tool + 4);
   const areaM2 = parts.reduce((s, p) => s + partArea(p), 0) / 1e6;
@@ -116,4 +120,31 @@ export function groupChecks(checks: Check[]): Check[] {
     }
   }
   return out;
+}
+
+/** Mayor tramo sin apoyo de una pieza horizontal, considerando piezas verticales que la tocan por arriba o por abajo. */
+export function freeSpan(p: Part, parts: Part[]): number {
+  const box = (q: Part) => {
+    const vs = partVertices(q);
+    const mn = [0, 1, 2].map((i) => Math.min(...vs.map((v) => v[i]))), mx = [0, 1, 2].map((i) => Math.max(...vs.map((v) => v[i])));
+    return { mn, mx };
+  };
+  const a = box(p);
+  const ax = a.mx[0] - a.mn[0] >= a.mx[1] - a.mn[1] ? 0 : 1; // eje de la luz (el más largo)
+  const other = 1 - ax;
+  const cuts = [a.mn[ax], a.mx[ax]];
+  for (const q of parts) {
+    if (q === p || q.process === 'tapiz' || q.process === 'ref' || Math.abs(normal(q.plane)[2]) > 0.9) continue;
+    const b = box(q);
+    const touches = Math.abs(b.mx[2] - a.mn[2]) < 1 || Math.abs(b.mn[2] - a.mx[2]) < 1;
+    // apoyo real: cruza ≥80 % del ancho de la pieza y es angosto a lo largo de la luz (una división, no un fondo paralelo)
+    const overlap = Math.min(b.mx[other], a.mx[other]) - Math.max(b.mn[other], a.mn[other]);
+    const crosses = overlap >= 0.8 * (a.mx[other] - a.mn[other]) && b.mx[ax] - b.mn[ax] < 0.25 * (a.mx[ax] - a.mn[ax]);
+    const c = (b.mn[ax] + b.mx[ax]) / 2;
+    if (touches && crosses && c > a.mn[ax] + 1 && c < a.mx[ax] - 1) cuts.push(c);
+  }
+  cuts.sort((x, y) => x - y);
+  let max = 0;
+  for (let i = 1; i < cuts.length; i++) max = Math.max(max, cuts[i] - cuts[i - 1]);
+  return max;
 }

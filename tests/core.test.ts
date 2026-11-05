@@ -298,3 +298,21 @@ describe('manipulación directa', () => {
     expect(design.components.find((c) => c.id === 'barrote')!.x).toBe('(largo_baranda - 40 - (n - 1)*paso) / 2 + i*paso');
   });
 });
+
+import { freeSpan } from '../src/core/analysis';
+
+describe('luz libre con apoyos intermedios', () => {
+  it('la división central apoya el techo y la base de la estantería', () => {
+    const parts = getTemplate('estanteria').build(defaults('estanteria'), { material: 'mdf' });
+    const techo = parts.find((p) => p.id === 'techo')!;
+    expect(freeSpan(techo, parts)).toBeLessThan(600); // ~582 en vez de 1164
+    const one = getTemplate('estanteria').build({ ...defaults('estanteria'), cols: 1 }, { material: 'mdf' });
+    expect(freeSpan(one.find((p) => p.id === 'techo')!, one)).toBeCloseTo(1164, 0);
+  });
+  it('el ejemplo por defecto abre factible (sin advertencias)', () => {
+    const parts = getTemplate('estanteria').build(defaults('estanteria'), { material: 'plywood-abedul' });
+    const a = analyse(parts, DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(a.checks.filter((c) => c.level === 'warn' || c.level === 'error')).toEqual([]);
+    expect(a.checks.some((c) => /anclar a muro/.test(c.msg))).toBe(true); // sigue la recomendación, como nota
+  });
+});
