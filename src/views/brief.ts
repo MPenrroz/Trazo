@@ -1,8 +1,8 @@
 import { uid } from '../core/geom';
 import { store } from '../core/store';
-import { TEMPLATES } from '../core/templates';
-import { STARTERS, freeParams } from '../core/free';
-import { applyStarter } from './free-editor';
+import { TEMPLATES, getTemplate } from '../core/templates';
+import { STARTERS } from '../core/free';
+import { applyStarter, applyTemplate, convertToFree, freeEquivalent, replaceDesign } from './design-change';
 import { card, h, pickFiles, readImage, toast } from '../ui';
 
 const TAGS = ['Forma', 'Material', 'Uso', 'Detalle', 'Ambiente', 'Unión'];
@@ -53,13 +53,30 @@ export function briefView(root: HTMLElement) {
     onclick: (e: Event) => { set('methodId', m.id); methods.querySelectorAll('.chip').forEach((c) => c.classList.remove('on')); (e.currentTarget as HTMLElement).classList.add('on'); },
   }, m.name)));
 
-  const templates = h('div', { class: 'tpls' }, ...TEMPLATES.map((t) => h('button', {
-    class: `tpl ${t.id === p.template ? 'on' : ''}`,
-    onclick: (e: Event) => {
-      store.update((x) => { x.template = t.id; x.values = Object.fromEntries((t.id === 'libre' ? freeParams(x.free) : t.params).map((q) => [q.key, q.default])); x.rules = {}; }, 'template');
-      templates.querySelectorAll('.tpl').forEach((c) => c.classList.remove('on')); (e.currentTarget as HTMLElement).classList.add('on');
-    },
-  }, h('b', null, t.name), h('span', null, t.description))));
+  // Cómo se construye el producto: el diseño libre es el camino principal; las plantillas fijas quedan como especiales
+  const build = () => {
+    const pr = store.project, t = getTemplate(pr.template);
+    const nPieces = pr.free?.components.length ?? 0;
+    const equiv = freeEquivalent(pr.template);
+    const status = pr.template === 'libre'
+      ? h('div', { class: 'build-status' },
+          h('div', null, h('b', null, 'Diseño libre'), h('span', { class: 'muted' }, nPieces ? ` · ${nPieces} pieza${nPieces > 1 ? 's' : ''}` : ' · aún sin piezas')),
+          h('a', { class: 'btn', href: '#/modelo' }, nPieces ? 'Editar piezas →' : 'Agregar piezas →'))
+      : h('div', { class: 'build-status special' },
+          h('div', null, h('b', null, t.name), h('span', { class: 'muted' }, ' · plantilla fija: solo se cambian sus parámetros.')),
+          equiv ? h('button', { onclick: () => { convertToFree(); } }, 'Pasar a diseño libre (mismas medidas)') : null);
+    return [
+      status,
+      h('p', { class: 'muted' }, 'Partir de un ejemplo (reemplaza el diseño actual; podrás deshacer):'),
+      h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost', title: st.description, onclick: async () => { if (await applyStarter(st)) location.hash = '#/modelo'; } }, st.name))),
+      h('details', { class: 'specials' }, h('summary', null, 'Plantillas especiales'),
+        h('p', { class: 'muted' }, 'Generadores con formas que el diseño libre aún no hace (curvas, ranuras). Solo se ajustan sus parámetros.'),
+        h('div', { class: 'tpls' }, ...TEMPLATES.filter((x) => ['nicho', 'costillas'].includes(x.id)).map((x) => h('button', {
+          class: `tpl ${x.id === pr.template ? 'on' : ''}`, onclick: async () => { if (await applyTemplate(x.id)) location.hash = '#/modelo'; },
+        }, h('b', null, x.name), h('span', null, x.description)))),
+        pr.template !== 'libre' ? h('button', { class: 'ghost', onclick: () => replaceDesign('Empezar un diseño libre vacío', (q) => { q.template = 'libre'; q.free = { params: [], components: [] }; q.values = {}; q.rules = {}; }, 'Diseño libre vacío') }, 'Empezar diseño libre vacío') : null),
+    ];
+  };
 
   root.append(h('div', { class: 'page brief' },
     h('div', { class: 'col' },
@@ -68,9 +85,7 @@ export function briefView(root: HTMLElement) {
         h('label', { class: 'field' }, 'Autor / estudio', h('input', { value: p.author, oninput: (e: Event) => set('author', (e.target as HTMLInputElement).value) })),
         h('label', { class: 'field' }, 'Descripción del concepto', h('textarea', { rows: 5, placeholder: 'Idea, intención, usuario, contexto, sensaciones…', oninput: (e: Event) => set('description', (e.target as HTMLTextAreaElement).value) }, p.description))),
       card('Funcionalidades', funcs, h('div', { class: 'row' }, newFunc, h('button', { onclick: addFunc }, 'Agregar'))),
-      card('Tipología base (generador paramétrico)', templates,
-        h('p', { class: 'muted' }, 'Ejemplos editables para el diseño libre:'),
-        h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost', title: st.description, onclick: () => { applyStarter(st); location.hash = '#/modelo'; } }, st.name)))),
+      card('Cómo se construye el producto', ...build()),
       card('Manufactura prevista', methods, h('p', { class: 'muted' }, 'Define qué restricciones se verifican (tamaño de cama, espesor máximo, herramienta). Ajustable en Fabricación.')),
       card('Notas de diseño', h('textarea', { rows: 4, placeholder: 'Uniones, acabados, dudas a resolver en Rhino…', oninput: (e: Event) => set('notes', (e.target as HTMLTextAreaElement).value) }, p.notes))),
     h('div', { class: 'col' },

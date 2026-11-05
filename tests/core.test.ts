@@ -219,7 +219,7 @@ describe('fórmulas', () => {
 describe('diseño libre: cama nido', () => {
   const st = STARTERS[0];
   const design = st.design();
-  const sketch: SketchDoc = { elements: st.sketch(0, 0), mmPerPx: 1, calibrated: false, underlayOpacity: 1 };
+  const sketch: SketchDoc = { elements: st.sketch!(0, 0), mmPerPx: 1, calibrated: false, underlayOpacity: 1 };
   const shapes = shapesFromSketch(sketch);
   const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.default]));
   const build = (v = values) => { const errors: string[] = []; const parts = buildFree(v, design, shapes, 'plywood-abedul', errors); return { parts, errors }; };
@@ -315,4 +315,36 @@ describe('luz libre con apoyos intermedios', () => {
     expect(a.checks.filter((c) => c.level === 'warn' || c.level === 'error')).toEqual([]);
     expect(a.checks.some((c) => /anclar a muro/.test(c.msg))).toBe(true); // sigue la recomendación, como nota
   });
+});
+
+import { partArea } from '../src/core/geom';
+
+describe('ejemplos de diseño libre equivalentes a las plantillas', () => {
+  const cases: [string, Record<string, unknown>[]][] = [
+    ['estanteria', [{}, { w: 1800, n: 6, cols: 3, back: false, plinth: 0 }, { n: 0, cols: 1, t: 15 }]],
+    ['mesa', [{}, { l: 2400, a: 1000, inset: 300, beam: 0, t: 18 }]],
+  ];
+  for (const [tpl, combos] of cases) {
+    const st = STARTERS.find((s) => s.from?.template === tpl)!;
+    for (const over of combos) {
+      it(`${tpl} ${JSON.stringify(over)}`, () => {
+        const tv = { ...defaults(tpl), ...over } as Record<string, number | boolean>;
+        const ref = getTemplate(tpl).build(tv, { material: 'mdf' });
+        const design = st.design();
+        const fv: Record<string, number | boolean | string> = Object.fromEntries(freeParams(design).map((d) => [d.key, d.default]));
+        for (const [k, key] of Object.entries(st.from!.map)) fv[key] = tv[k] as number | boolean;
+        const errors: string[] = [];
+        const mine = buildFree(fv, design, {}, 'mdf', errors);
+        expect(errors).toEqual([]);
+        expect(mine.length).toBe(ref.length);
+        const r = bounds3(ref), m = bounds3(mine);
+        for (let i = 0; i < 3; i++) { expect(m.min[i]).toBeCloseTo(r.min[i], 3); expect(m.max[i]).toBeCloseTo(r.max[i], 3); }
+        const area = (ps: typeof ref) => ps.reduce((s, p) => s + partArea(p), 0);
+        expect(area(mine)).toBeCloseTo(area(ref), 0);
+        // misma ubicación de cada pieza (centros ordenados)
+        const centers = (ps: typeof ref) => ps.map((p) => { const b = bounds3([p]); return b.min.map((v, i) => Math.round((v + b.max[i]) / 2)).join(','); }).sort();
+        expect(centers(mine)).toEqual(centers(ref));
+      });
+    }
+  }
 });

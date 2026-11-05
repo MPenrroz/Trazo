@@ -10,6 +10,7 @@ import { sketchView } from './views/sketch';
 import { confirmDialog, h, pickFiles, toast } from './ui';
 import { STEPS, nextStep } from './steps';
 import { backupProject, backupStatus } from './backup';
+import { openWelcome } from './views/welcome';
 
 type ViewFn = (root: HTMLElement, q: URLSearchParams) => void | (() => void);
 const VIEWS: Record<string, ViewFn> = { concepto: briefView, boceto: sketchView, modelo: modelView, planos: plansView, fabricacion: fabView, tienda: shopView, exportar: exportView };
@@ -30,18 +31,36 @@ async function refreshProjects() {
 projSel.addEventListener('change', async () => { await store.save(); await store.open(projSel.value); route(); });
 document.addEventListener('trazo:title', () => { const o = projSel.selectedOptions[0]; if (o) o.textContent = store.project.name; });
 
+async function importFile() {
+  const [f] = await pickFiles('.json,.trazo,application/json');
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (data.format === 'trazo-spec@1') throw new Error('Ese archivo es una especificación de tienda; abre un respaldo .trazo.json');
+    const p = normalize({ ...data, id: data.id ?? undefined });
+    await store.save(); await store.create(p); await refreshProjects(); route(); toast('Proyecto abierto');
+  } catch (e) { toast(`No se pudo abrir: ${(e as Error).message}`, 'err'); }
+}
+
+/** Bienvenida / nuevo producto. En la primera visita reemplaza el proyecto vacío creado al iniciar. */
+function welcome(first: boolean) {
+  const blank = first ? store.project.id : null;
+  openWelcome(first, {
+    created: async (p, r) => {
+      await store.save().catch(() => 0);
+      await store.create(p);
+      if (blank && blank !== p.id) await store.remove(blank).catch(() => 0);
+      await refreshProjects();
+      location.hash = `#/${r}`;
+      route();
+    },
+    importFile: async () => { await importFile(); if (blank && store.project.id !== blank) { await store.remove(blank).catch(() => 0); await refreshProjects(); } },
+  });
+}
+
 const menuItems = h('div', { class: 'menu-items' },
-  h('button', { class: 'ghost', onclick: async () => { await store.save(); await store.create(newProject()); await refreshProjects(); location.hash = '#/concepto'; route(); } }, '+ Nuevo'),
-  h('button', { class: 'ghost', onclick: async () => {
-    const [f] = await pickFiles('.json,application/json');
-    if (!f) return;
-    try {
-      const data = JSON.parse(await f.text());
-      if (data.format === 'trazo-spec@1') throw new Error('Ese archivo es un spec de tienda; importa un .trazo.json');
-      const p = normalize({ ...data, id: data.id ?? undefined });
-      await store.create(p); await refreshProjects(); route(); toast('Proyecto importado');
-    } catch (e) { toast(`No se pudo importar: ${(e as Error).message}`, 'err'); }
-  } }, 'Importar'),
+  h('button', { class: 'ghost', onclick: () => welcome(false) }, '+ Nuevo producto'),
+  h('button', { class: 'ghost', onclick: () => importFile() }, 'Abrir respaldo (.trazo)'),
   h('button', { class: 'ghost', onclick: async () => {
     const copy = structuredClone(store.project); copy.id = newProject().id; copy.name += ' (copia)';
     await store.save(); await store.create(copy); await refreshProjects(); route();
@@ -55,7 +74,7 @@ const menuItems = h('div', { class: 'menu-items' },
   } }, 'Eliminar'));
 const backupInfo = h('p', { class: 'menu-note' });
 menuItems.prepend(h('button', { class: 'ghost', onclick: () => backupProject() }, 'Respaldar proyecto (.trazo)'));
-menuItems.append(backupInfo);
+menuItems.append(h('button', { class: 'ghost', onclick: () => welcome(false) }, 'Cómo funciona'), backupInfo);
 const menu = h('details', { class: 'menu' }, h('summary', { title: 'Proyecto' }, '⋯'), menuItems);
 menu.addEventListener('toggle', () => { if (menu.open) backupInfo.textContent = backupStatus().text; });
 
@@ -79,7 +98,11 @@ function route() {
   const q = new URLSearchParams(qs ?? '');
   const public_ = r.id === 'tienda' && q.has('producto');
   document.body.classList.toggle('public', public_);
-  nav.replaceChildren(...ROUTES.map((x) => h('a', { href: `#/${x.id}`, class: x.id === r.id ? 'on' : '', title: x.label, 'aria-label': `Paso ${x.n}: ${x.label}` }, h('i', null, x.n), h('span', null, x.label))));
+  nav.replaceChildren(...ROUTES.map((x) => {
+    const opt = 'optional' in x && x.optional;
+    const label = opt ? `${x.label} (opcional)` : x.label;
+    return h('a', { href: `#/${x.id}`, class: `${x.id === r.id ? 'on' : ''} ${opt ? 'opt' : ''}`, title: label, 'aria-label': `Paso ${x.n}: ${label}` }, h('i', null, x.n), h('span', null, x.label));
+  }));
   if (typeof unmount === 'function') unmount();
   content.replaceChildren();
   content.dataset.view = r.id;
@@ -107,6 +130,8 @@ async function start() {
     last = path; route();
   });
   last = location.hash.split('?')[0];
+  document.addEventListener('trazo:rerender', () => route());
   route();
+  if (store.firstRun && !seeded) welcome(true);
 }
 start();

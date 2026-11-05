@@ -48,8 +48,8 @@ export function sketchView(root: HTMLElement) {
   // ¿esta tipología usa el boceto? (solo Costillas y Diseño libre lo convierten en piezas)
   const usesSketch = store.project.template === 'costillas' || store.project.template === 'libre';
   const notice = usesSketch ? null : h('div', { class: 'sk-notice' },
-    h('span', null, h('b', null, `${store.template.name} no usa el boceto para generar piezas. `), 'Puedes dibujar para pensar y compararlo en Planos; para que el dibujo se vuelva piezas, elige "Diseño libre" o "Costillas desde boceto" en Concepto.'),
-    h('a', { class: 'btn ghost sm', href: '#/concepto' }, 'Cambiar tipología'));
+    h('span', null, h('b', null, `La plantilla "${store.template.name}" no usa el boceto. `), 'Puedes dibujar para pensar y compararlo en Planos. Para que tus siluetas se vuelvan piezas, pasa a diseño libre en Concepto.'),
+    h('a', { class: 'btn ghost sm', href: '#/concepto' }, 'Ir a Concepto'));
 
   const opacity = h('input', { type: 'range', min: '0', max: '1', step: '0.05', value: String(store.project.sketch.underlayOpacity) });
   opacity.addEventListener('input', () => { store.update((p) => { p.sketch.underlayOpacity = Number(opacity.value); }, 'sketch'); editor.render(); });

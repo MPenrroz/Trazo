@@ -20,12 +20,12 @@ async function tx<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBReq
   return new Promise((res, rej) => { const r = fn(d.transaction(STORE, mode).objectStore(STORE)); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 }
 
+/** Proyecto nuevo: diseño libre vacío (el centro de la app). */
 export function newProject(name = 'Nuevo producto'): Project {
-  const t = getTemplate('estanteria');
   return {
     id: uid('p-'), name, author: '', description: '', functions: [], notes: '',
-    template: t.id, methodId: 'cnc3', materialId: 'plywood-abedul',
-    values: Object.fromEntries(t.params.map((p) => [p.key, p.default])), rules: {},
+    template: 'libre', methodId: 'cnc3', materialId: 'plywood-abedul',
+    values: {}, rules: {}, free: emptyFree(),
     references: [],
     sketch: { elements: [], mmPerPx: 1, calibrated: false, underlayOpacity: 0.5 },
     pricing: { margin: 60, base: 15000, currency: 'CLP' },
@@ -53,6 +53,8 @@ class Store {
 
   /** false cuando el navegador no permite IndexedDB (modo privado, iframes): se trabaja solo en memoria. */
   persist = true;
+  /** Primera vez en este navegador: no había proyectos guardados (se muestra la bienvenida). */
+  firstRun = false;
 
   /**
    * @param seed proyecto de ejemplo que se carga si aún no existe en este dispositivo (p. ej. una demo publicada).
@@ -71,7 +73,7 @@ class Store {
     try { id = localStorage.getItem(CURRENT); } catch { /* sin storage */ }
     const found = all.find((p) => p.id === id) ?? all.sort((a, b) => b.updatedAt - a.updatedAt)[0];
     if (found) this.project = normalize(found);
-    else await this.save().catch(() => { this.persist = false; });
+    else { this.firstRun = true; await this.save().catch(() => { this.persist = false; }); }
     return false;
   }
   async list(): Promise<Project[]> { if (!this.persist) return [this.project]; return tx('readonly', (s) => s.getAll() as IDBRequest<Project[]>); }

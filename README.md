@@ -30,7 +30,7 @@ publicable en una **tienda web donde el cliente configura** el producto dentro d
 | **6 · Tienda** | Vista del cliente: solo parámetros expuestos, precio en vivo, bloqueo de combinaciones no fabricables, **AR Quick Look** (ver a escala 1:1 en el espacio con iPad/iPhone), enlace compartible con la configuración, pedido JSON (punto de integración con checkout). |
 | **7 · Exportar** | `.3dm` (sólidos por capa con UserText, perfiles CNC anidados, boceto de referencia, parámetros en DocumentUserText), `spec.json`, script **Rhino/Grasshopper**, DXF, SVG, STL, GLB, OBJ, USDZ, y el proyecto completo `.trazo.json` para pasarlo por iCloud Drive. |
 
-Todo se guarda localmente en el navegador (IndexedDB), con múltiples proyectos (menú ⋯: nuevo, importar, duplicar, eliminar).
+La primera vez se muestra una bienvenida: empezar desde cero (diseño libre), partir de un ejemplo o abrir un respaldo. Todo se guarda localmente en el navegador (IndexedDB), con múltiples proyectos (menú ⋯: nuevo, importar, duplicar, eliminar).
 
 ## Diseño libre (compositor)
 

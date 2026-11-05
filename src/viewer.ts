@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { bounds3, normal } from './core/geom';
 import { partLayers } from './core/pockets';
-import type { Material, Part } from './core/types';
+import type { Material, Part, V3 } from './core/types';
 
 THREE.Object3D.DEFAULT_UP.set(0, 0, 1); // Z arriba, como Rhino
 
@@ -121,7 +121,8 @@ export class Viewer {
   }
 
   frame(parts: Part[]) {
-    const b = bounds3(parts);
+    // sin piezas: encuadre de un volumen de 1 m para que se vea la grilla del piso
+    const b = parts.length ? bounds3(parts) : { min: [-500, -500, 0] as V3, max: [500, 500, 1000] as V3, size: [1000, 1000, 1000] as V3 };
     const c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
     // distancia para que la esfera envolvente quepa tanto en vertical como en horizontal (iPhone en vertical)
     const rs = Math.max(Math.hypot(...b.size) / 2, 150);

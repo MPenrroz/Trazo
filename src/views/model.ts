@@ -6,6 +6,7 @@ import { Viewer } from '../viewer';
 import { nextStep } from '../steps';
 import { drawOnPiece, paramDefsEditor, piecesEditor, type PiecesEl } from './free-editor';
 import { DirectEdit, partDims } from './direct-edit';
+import { convertToFree, freeEquivalent } from './design-change';
 import { confirmDialog, toast } from '../ui';
 import { uid } from '../core/geom';
 import type { FreeDesign } from '../core/free';
@@ -49,17 +50,17 @@ export function modelView(root: HTMLElement) {
     direct?.refresh();
     renderSelBar(direct?.part ?? null);
     const a = analyse(parts, store.method, store.material, store.project, store.project.fab.materials);
-    const worst = a.checks.some((c) => c.level === 'error') ? 'error' : a.checks.some((c) => c.level === 'warn') ? 'warn' : 'ok';
+    const empty = !parts.filter((q) => q.process !== 'ref').length;
+    const worst = empty ? 'none' : a.checks.some((c) => c.level === 'error') ? 'error' : a.checks.some((c) => c.level === 'warn') ? 'warn' : 'ok';
     summary.replaceChildren(
       h('div', null, h('small', null, 'Medidas'), h('b', null, `${a.size[0]} × ${a.size[1]} × ${a.size[2]} mm`)),
       h('div', null, h('small', null, 'Piezas / tableros'), h('b', null, `${parts.length} / ${a.nest.sheets}`)),
       h('div', null, h('small', null, 'Peso aprox.'), h('b', null, `${a.weightKg.toFixed(1)} kg`)),
-      h('div', null, h('small', null, 'Precio tienda'), h('b', null, money(a.cost.price, store.project.pricing.currency))),
-      h('button', { class: `state ${worst}`, title: 'Ver avisos', onclick: () => checksEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, worst === 'ok' ? 'Factible' : worst === 'warn' ? 'Revisar' : 'No factible'),
+      h('div', null, h('small', null, 'Precio tienda'), h('b', null, empty ? '—' : money(a.cost.price, store.project.pricing.currency))),
+      h('button', { class: `state ${worst}`, title: 'Ver avisos', onclick: () => checksEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }) }, worst === 'none' ? 'Sin piezas' : worst === 'ok' ? 'Factible' : worst === 'warn' ? 'Revisar' : 'No factible'),
       nextStep('modelo', undefined, true) ?? '');
     const formulaErrors = store.buildErrors.map((msg) => ({ level: 'error' as const, msg: `Fórmula · ${msg}` }));
-    checksEl.replaceChildren(checkList([...formulaErrors, ...a.checks.filter((c) => c.level !== 'info')]));
-    if (free && !parts.length) checksEl.prepend(h('p', { class: 'muted' }, 'Aún no hay piezas: ve a la pestaña Piezas para armar tu producto o partir de un ejemplo.'));
+    checksEl.replaceChildren(empty ? h('p', { class: 'muted' }, 'Agrega la primera pieza en el panel para empezar.') : checkList([...formulaErrors, ...a.checks.filter((c) => c.level !== 'info')]));
   };
 
   const grouped = (defs: ParamDef[]) => {
@@ -144,7 +145,7 @@ export function modelView(root: HTMLElement) {
         remember();
         store.update((pp) => { pp.free!.components = pp.free!.components.filter((c) => c.id !== comp.id); }, 'free');
         direct?.select(null); afterEdit();
-      } }, 'Eliminar') : h('span', { class: 'muted' }, 'Para editar a mano, usa la tipología Diseño libre.'),
+      } }, 'Eliminar') : freeEquivalent(store.project.template) ? h('button', { class: 'sm', onclick: () => convertToFree() }, 'Pasar a diseño libre para editarla') : h('span', { class: 'muted' }, 'Plantilla especial: se edita con sus parámetros.'),
       h('button', { class: 'ghost sm', title: 'Quitar selección', onclick: () => { direct?.select(null); } }, '✕')].filter(Boolean) as Node[]));
   }
   function resetExplode() { if (Number(explode.value)) { explode.value = '0'; viewer?.setExplode(0); } }
@@ -163,7 +164,7 @@ export function modelView(root: HTMLElement) {
 
   root.append(h('div', { class: 'page model' },
     h('aside', { class: 'panel' },
-      h('div', { class: 'tpl-name' }, h('small', null, 'Tipología'), h('b', null, store.template.name),
+      h('div', { class: 'tpl-name' }, h('small', null, free ? 'Producto' : 'Plantilla especial'), h('b', null, free ? 'Diseño libre' : store.template.name),
         store.template.usesProfile ? h('a', { href: '#/boceto', class: 'link' }, store.project.profile ? 'Perfil desde boceto ✓ · editar' : 'Usando perfil de ejemplo · dibujar perfil') : null),
       tabs, piecesEl, paramsEl, defsEl, rulesEl),
     h('div', { class: 'main' },

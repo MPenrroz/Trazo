@@ -1,5 +1,5 @@
 import { evalExpr } from '../core/expr';
-import { STARTERS, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign, type Starter } from '../core/free';
+import { STARTERS, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
 import type { ParamDef, Project, V2 } from '../core/types';
@@ -18,23 +18,8 @@ const FIELDS: { k: 'w' | 'h' | 't' | 'x' | 'y' | 'z'; label: string }[] = [
 
 const design = (p: Project): FreeDesign => (p.free ??= emptyFree());
 
-/** Carga un ejemplo en el proyecto actual: tipología libre, parámetros, piezas y la silueta en el boceto. */
-export function applyStarter(st: Starter) {
-  store.update((p) => {
-    p.template = 'libre';
-    p.rules = {};
-    p.free = st.design();
-    // la silueta se agrega al boceto a la derecha de lo ya dibujado
-    const pts: V2[] = p.sketch.elements.flatMap((e) => (e.kind === 'circle' ? [e.c] : e.kind === 'dim' ? [e.a, e.b] : e.pts));
-    const ox = pts.length ? bounds2(pts).x1 + 120 : 80;
-    const els = st.sketch(ox, 80);
-    const ids = new Set(p.sketch.elements.map((e) => e.id));
-    // si la silueta ya existe (ejemplo cargado antes), no se duplica
-    if (!els.every((e) => ids.has(e.id))) p.sketch.elements.push(...els.filter((e) => !ids.has(e.id)));
-    p.values = Object.fromEntries(freeParams(p.free).map((d) => [d.key, d.default]));
-  }, 'template');
-  toast(`Ejemplo cargado: ${st.name}. Edita piezas y parámetros a tu gusto.`);
-}
+export { applyStarter } from './design-change';
+import { applyStarter } from './design-change';
 
 /** Miniatura SVG de una forma del boceto. */
 function thumb(shapeId: string) {
@@ -142,6 +127,14 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     return det;
   }
 
+  function addPiece() {
+    const d = design(store.project);
+    const c = newComponent({ name: `Pieza ${d.components.length + 1}` });
+    openId = c.id;
+    store.update((p) => { design(p).components.push(c); }, 'free'); changed(); render();
+    onOpen?.(c.id);
+  }
+
   function render() {
     hintEls.clear();
     const d = design(store.project);
@@ -150,15 +143,13 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     root.replaceChildren(...[
       errs,
       d.components.length ? null : h('div', { class: 'empty' },
-        h('p', null, 'Arma tu producto con piezas: un rectángulo o una silueta de tu boceto, con medidas y posición escritas como fórmulas de tus parámetros.'),
-        ...STARTERS.map((st) => h('button', { onclick: () => { applyStarter(st); changed(); render(); } }, `Partir de: ${st.name}`)),
-        h('p', { class: 'muted' }, STARTERS.map((s) => s.description).join(' '))),
+        h('b', null, 'Tu producto aún no tiene piezas'),
+        h('p', null, 'Cada pieza es un tablero: rectangular o con la silueta que dibujes en el Boceto. Después la estiras y mueves tocándola en el 3D.'),
+        h('button', { onclick: () => addPiece() }, '+ Agregar la primera pieza'),
+        h('p', { class: 'muted' }, 'O parte de un ejemplo (todo es editable):'),
+        h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost sm', title: st.description, onclick: async () => { if (await applyStarter(st)) { changed(); render(); } } }, st.name)))),
       ...d.components.map((c, i) => card(c, i, d.components.length)),
-      h('button', { class: 'add-piece', onclick: () => {
-        const c = newComponent({ name: `Pieza ${d.components.length + 1}` });
-        openId = c.id;
-        store.update((p) => { design(p).components.push(c); }, 'free'); changed(); render();
-      } }, '+ Agregar pieza'),
+      d.components.length ? h('button', { class: 'add-piece', onclick: () => addPiece() }, '+ Agregar pieza') : null,
       h('div', { class: 'vars' }, h('small', null, 'Variables para las fórmulas'), h('div', { class: 'chips' }, ...vars.map((v) => h('code', null, v))),
         h('p', { class: 'muted' }, 'Operaciones: + − * / ( ), min(), max(), round(), floor(), ceil(), comparaciones y "condición ? a : b". La posición es la esquina mínima de la pieza; `i` es el número de copia (0, 1, 2…) y `n` la cantidad.'),
         h('p', { class: 'muted' }, `Formas cerradas en el boceto: ${nShapes}. `, h('a', { class: 'link', href: '#/boceto' }, 'Dibujar o editar siluetas →')))].filter((x) => !!x) as HTMLElement[]);

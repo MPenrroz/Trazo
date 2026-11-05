@@ -87,10 +87,14 @@ Usuario principal: arquitecto o diseñador. Usuario secundario: el cliente final
 | Rhino | Sin conexión en vivo: se intercambian archivos. Rhino.Compute queda como fase 2, en evaluación. |
 | Unidades | Solo milímetros. |
 
-## Decisiones de alcance pendientes
+## Decisiones de alcance
 
-1. ¿Las tipologías prediseñadas siguen siendo el camino principal, o el **diseño libre** pasa a ser el centro y las tipologías se vuelven "ejemplos"?
-2. ¿El boceto es un **paso obligatorio** del flujo o una herramienta opcional para siluetas y calados?
+**Tomadas (5 nov):**
+1. **El diseño libre es el centro.** Los proyectos nuevos parten en diseño libre. Estantería, mesa y cama nido son ejemplos de diseño libre (editables pieza por pieza). Nicho y costillas quedan como "plantillas especiales" hasta que el compositor haga curvas y ranuras.
+2. **El boceto es opcional:** sirve para siluetas y calados. En la navegación aparece con círculo segmentado y "Siguiente" desde Concepto va directo al Modelo.
+
+**Pendientes:**
+
 3. ¿La tienda es una **vista previa para el arquitecto** o debe llegar a vender (pago, pedidos)? Cambia mucho el alcance.
 4. ¿Los proyectos deben **sincronizarse** entre iPad y computador dentro de la app, o basta con exportar a iCloud?
 5. ¿Fabricación cubre solo **tableros CNC/láser**, o también impresión 3D y robótica con chequeos propios? Hoy esos métodos solo cambian medidas de cama y espesor.

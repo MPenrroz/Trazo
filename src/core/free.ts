@@ -164,7 +164,16 @@ function headboardSketch(ox: number, oy: number, S = 400): SketchEl[] {
   ];
 }
 
-export interface Starter { id: string; name: string; description: string; design: () => FreeDesign; sketch: (ox: number, oy: number) => SketchEl[] }
+export interface Starter {
+  id: string;
+  name: string;
+  description: string;
+  design: () => FreeDesign;
+  /** Siluetas que el ejemplo agrega al boceto (opcional). */
+  sketch?: (ox: number, oy: number) => SketchEl[];
+  /** Plantilla antigua equivalente y cómo traducir sus valores (para "Pasar a diseño libre"). */
+  from?: { template: string; map: Record<string, string> };
+}
 
 export const STARTERS: Starter[] = [{
   id: 'cama-nido',
@@ -192,6 +201,58 @@ export const STARTERS: Starter[] = [{
       newComponent({ id: 'larg-sup', name: 'Larguero superior', role: 'Larguero baranda', orient: 'XZ', w: 'largo_baranda', h: '60', x: '0', y: '-t', z: 'alto_cama + alto_baranda - 60', when: 'baranda' }),
       newComponent({ id: 'larg-inf', name: 'Larguero inferior', role: 'Larguero baranda', orient: 'XZ', w: 'largo_baranda', h: '80', x: '0', y: '-t', z: 'alto_cama - 100', when: 'baranda' }),
       newComponent({ id: 'barrote', name: 'Barrote', role: 'Barrote', orient: 'XZ', w: '40', h: 'alto_baranda - 40', x: '(largo_baranda - 40 - (n - 1)*paso) / 2 + i*paso', y: '-t', z: 'alto_cama - 20', count: 'floor((largo_baranda - 100) / paso) + 1', when: 'baranda' }),
+    ],
+  }),
+}, {
+  id: 'estanteria',
+  name: 'Estantería / librero',
+  description: 'Laterales, techo, base, zócalo, módulos con divisiones, repisas equidistantes y fondo opcional.',
+  from: { template: 'estanteria', map: { w: 'ancho', h: 'alto', d: 'prof', n: 'repisas', cols: 'modulos', back: 'fondo', plinth: 'zocalo', t: 't' } },
+  design: () => {
+    // ancho de cada módulo y separación vertical entre repisas, como fórmulas reutilizables
+    const col = '(ancho - 2*t - (modulos - 1)*t) / modulos';
+    const gap = '(alto - zocalo - 2*t - repisas*t) / (repisas + 1)';
+    const dIn = 'prof - (fondo ? t : 0)';
+    return {
+      params: [
+        num('ancho', 'Ancho', 1200, 400, 2400, 10, true, 'Dimensiones'),
+        num('alto', 'Alto', 1800, 400, 2400, 10, true, 'Dimensiones'),
+        num('prof', 'Profundidad', 350, 200, 600, 10, true, 'Dimensiones'),
+        { key: 'repisas', label: 'Repisas intermedias', type: 'int', default: 4, min: 0, max: 10, step: 1, exposed: true, group: 'Configuración' },
+        { key: 'modulos', label: 'Módulos (columnas)', type: 'int', default: 2, min: 1, max: 6, step: 1, exposed: true, group: 'Configuración' },
+        bool('fondo', 'Fondo', true, true, 'Configuración'),
+        num('zocalo', 'Zócalo', 60, 0, 150, 5, false, 'Configuración'),
+        { ...THICKNESS_PARAM },
+      ],
+      components: [
+        newComponent({ id: 'lateral', name: 'Lateral', role: 'Lateral', orient: 'YZ', w: 'prof', h: 'alto', x: 'i*(ancho - t)', count: '2' }),
+        newComponent({ id: 'techo', name: 'Techo', role: 'Cubierta', orient: 'XY', w: 'ancho - 2*t', h: 'prof', x: 't', z: 'alto - t' }),
+        newComponent({ id: 'base', name: 'Base', role: 'Base', orient: 'XY', w: 'ancho - 2*t', h: 'prof', x: 't', z: 'zocalo' }),
+        newComponent({ id: 'zocalo', name: 'Zócalo', role: 'Zócalo', orient: 'XZ', w: 'ancho - 2*t', h: 'zocalo', x: 't', y: 't', when: 'zocalo > 0' }),
+        newComponent({ id: 'division', name: 'División', role: 'División', orient: 'YZ', w: dIn, h: 'alto - zocalo - 2*t', x: `t + (i + 1)*${col} + i*t`, z: 'zocalo + t', count: 'modulos - 1' }),
+        newComponent({ id: 'repisa', name: 'Repisa', role: 'Repisa', orient: 'XY', w: col, h: dIn, x: `t + floor(i / repisas)*(${col} + t)`, z: `zocalo + t + (i % repisas + 1)*${gap} + (i % repisas)*t`, count: 'repisas*modulos' }),
+        newComponent({ id: 'fondo', name: 'Fondo', role: 'Fondo', orient: 'XZ', w: 'ancho - 2*t', h: 'alto - zocalo - 2*t', x: 't', y: 'prof - t', z: 'zocalo + t', when: 'fondo' }),
+      ],
+    };
+  },
+}, {
+  id: 'mesa',
+  name: 'Mesa de placas',
+  description: 'Cubierta, dos patas-placa y travesaño longitudinal.',
+  from: { template: 'mesa', map: { l: 'largo', a: 'ancho', h: 'alto', inset: 'retiro', beam: 'travesano', t: 't' } },
+  design: () => ({
+    params: [
+      num('largo', 'Largo', 1800, 800, 3000, 10, true, 'Dimensiones'),
+      num('ancho', 'Ancho', 850, 500, 1200, 10, true, 'Dimensiones'),
+      num('alto', 'Alto', 750, 400, 1100, 10, true, 'Dimensiones'),
+      num('retiro', 'Retiro de patas', 150, 0, 400, 10, false, 'Configuración'),
+      num('travesano', 'Alto travesaño', 140, 0, 300, 10, false, 'Configuración'),
+      { ...THICKNESS_PARAM, default: 24 },
+    ],
+    components: [
+      newComponent({ id: 'cubierta', name: 'Cubierta', role: 'Cubierta', orient: 'XY', w: 'largo', h: 'ancho', z: 'alto - t' }),
+      newComponent({ id: 'pata', name: 'Pata', role: 'Pata', orient: 'YZ', w: 'ancho - 2*min(retiro/2, 80)', h: 'alto - t', x: 'retiro + i*(largo - 2*retiro - t)', y: 'min(retiro/2, 80)', count: '2' }),
+      newComponent({ id: 'travesano', name: 'Travesaño', role: 'Travesaño', orient: 'XZ', w: 'largo - 2*retiro - 2*t', h: 'travesano', x: 'retiro + t', y: 'ancho/2 - t/2', z: 'alto - t - travesano', when: 'travesano > 0' }),
     ],
   }),
 }];

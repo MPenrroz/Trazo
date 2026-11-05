@@ -56,7 +56,8 @@ export function analyse(allParts: Part[], method: FabMethod, material: Material,
   const thicknesses = [...new Set(parts.map((p) => p.thickness))];
   for (const t of thicknesses) if (!material.thicknesses.includes(t)) checks.push({ level: 'warn', msg: `${material.name} no se fabrica comúnmente en ${t} mm (disponible: ${material.thicknesses.join(', ')} mm).` });
   // estabilidad: sobre 4 se recomienda anclar (habitual en libreros); sobre 6 es un riesgo real de vuelco
-  const slender = size[2] > 0 && Math.min(size[0], size[1]) > 0 ? size[2] / Math.min(size[0], size[1]) : 0;
+  // solo para muebles de más de 900 mm de alto: lo bajo no representa riesgo de vuelco
+  const slender = size[2] > 900 && Math.min(size[0], size[1]) > 0 ? size[2] / Math.min(size[0], size[1]) : 0;
   if (slender > 6) checks.push({ level: 'warn', msg: `Relación alto/base ${round(slender, 1)}: riesgo de volcamiento. Anclar a muro o ensanchar la base.` });
   else if (slender > 4) checks.push({ level: 'info', msg: `Relación alto/base ${round(slender, 1)}: se recomienda anclar a muro (herraje antivuelco).` });
 

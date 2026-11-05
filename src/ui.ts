@@ -23,11 +23,15 @@ function append(el: Node, children: Child[]) {
   }
 }
 
-export function toast(msg: string, kind: 'ok' | 'err' = 'ok') {
-  const t = h('div', { class: `toast ${kind}` }, msg);
+/** Aviso breve. Con `action` muestra un botón (p. ej. "Deshacer") y dura más. */
+export function toast(msg: string, kind: 'ok' | 'err' = 'ok', action?: { label: string; run: () => void }) {
+  document.querySelectorAll('.toast.has-action').forEach((x) => x.remove()); // un deshacer a la vez
+  const close = () => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); };
+  const t = h('div', { class: `toast ${kind} ${action ? 'has-action' : ''}`, role: 'status' }, h('span', null, msg),
+    action ? h('button', { class: 'toast-btn', onclick: () => { action.run(); close(); } }, action.label) : null);
   document.body.appendChild(t);
   requestAnimationFrame(() => t.classList.add('show'));
-  setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 300); }, 2600);
+  setTimeout(close, action ? 7000 : 2600);
 }
 
 export const money = (n: number, currency = 'CLP') => {

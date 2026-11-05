@@ -262,7 +262,7 @@ button.sm, .btn.sm { min-height: var(--tap); padding: 0 12px; font-size: 14px; }
 .sel-hint { font-size: 12px; color: var(--muted); }
 .drag-label { position: absolute; transform: translate(14px, -46px); background: var(--accent-2); color: #fff; padding: 6px 10px; border-radius: 10px; font-weight: 700; font-variant-numeric: tabular-nums; pointer-events: none; white-space: nowrap; z-index: 6; font-size: 15px; }
 .viewer-tools button { min-width: var(--tap); }
-@media (max-width: 760px) { .sel-hint { display: none; } }
+@media (max-width: 1280px) { .sel-hint { display: none; } }
 
 /* --- Tanda de arreglos rápidos --- */
 /* G4: los 7 pasos siempre caben: los no activos muestran solo su número bajo 1280 px */
@@ -312,3 +312,39 @@ a.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(
   .page.model .panel { order: 2; min-height: 0; overflow-y: auto; }
 }
 .summary > .next-step { border: 0; background: none; padding: 0; flex-direction: row; }
+
+/* --- Bienvenida y diseño libre como centro --- */
+.welcome-back { position: fixed; inset: 0; z-index: 150; background: rgba(20,24,26,.42); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) 16px; overflow-y: auto; }
+.welcome { background: var(--bg); border-radius: 20px; width: min(760px, 100%); padding: 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.3); max-height: 100%; overflow-y: auto; }
+.wl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.wl-head h2 { margin: 0 0 4px; font-size: 26px; letter-spacing: -.01em; }
+.wl-head .muted { margin: 0; }
+.welcome h3 { margin: 4px 0 0; }
+.wl-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.wl-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; height: auto; padding: 16px; background: #fff; color: var(--ink); border: 1.5px solid var(--line); border-radius: 14px; font-weight: 400; }
+.wl-choice b { font-size: 17px; }
+.wl-choice span:last-child { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.wl-choice.primary { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(234,88,12,.12); }
+.wl-ico { font-size: 24px; line-height: 1; color: var(--accent); }
+.wl-examples { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.wl-examples .muted { margin: 0; }
+.wl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.wl-example { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; height: auto; padding: 12px 14px; background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 12px; font-weight: 400; }
+.wl-example span { color: var(--muted); font-size: 13px; line-height: 1.4; }
+.wl-tag { color: var(--warn); font-size: 12px; font-weight: 600; }
+.wl-flow summary { cursor: pointer; font-weight: 700; min-height: var(--tap); display: flex; align-items: center; }
+.wl-flow ol { margin: 0 0 8px; padding-left: 20px; line-height: 1.6; font-size: 14px; }
+@media (max-width: 700px) { .wl-choices, .wl-grid { grid-template-columns: 1fr; } }
+
+.build-status { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 14px; border: 1.5px solid var(--accent); border-radius: 12px; background: #fff7f0; }
+.build-status.special { border-color: var(--line); background: #faf9f7; }
+.specials summary { cursor: pointer; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; color: var(--muted); }
+.specials .tpls { margin-bottom: 10px; }
+
+/* pasos opcionales: círculo segmentado */
+.tabs a.opt i { border-style: dashed; }
+
+/* aviso con acción (Deshacer) */
+.toast { display: flex; align-items: center; gap: 12px; }
+.toast-btn { min-height: var(--tap); background: #fff; color: var(--accent-2); border: 0; padding: 0 12px; }
+.state.none { color: var(--muted); background: #f3f1ec; }

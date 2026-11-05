@@ -25,6 +25,12 @@ Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 - T1 — "Generar pedido (prueba)".
 - E1 — Exportar con 3 opciones principales (Rhino, Taller, Respaldo) y "Más formatos".
 
+**Bloque 1 · Inicio y estructura (5 nov):**
+- G1 — bienvenida en la primera visita y en "+ Nuevo producto" (desde cero, ejemplo o respaldo) con "Cómo funciona".
+- G5 — tipología, ejemplo o conversión que reemplaza trabajo: confirmación con lo que se pierde y "Deshacer".
+- C1/C2 — sin tipología preseleccionada: proyectos nuevos en diseño libre; ejemplos visibles; "Pasar a diseño libre" para estantería y mesa.
+- Estado vacío del diseño libre con acción principal "Agregar la primera pieza"; sin precio ni "Factible" cuando no hay piezas.
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |
