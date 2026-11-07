@@ -309,6 +309,16 @@ def eval_expr(src, scope):
     return r
 
 
+def _keep_hole(hh, w, h, size):
+    """Calado sin deformar: centro estirado con la pieza, forma escalada uniformemente (espejo de keepHole)."""
+    if not size or size[0] <= 0 or size[1] <= 0:
+        return [(u * w, v * h) for u, v in hh]
+    us, vs = [p[0] for p in hh], [p[1] for p in hh]
+    cu, cv = (min(us) + max(us)) / 2.0, (min(vs) + max(vs)) / 2.0
+    s = min(w / size[0], h / size[1])
+    return [(cu * w + (u - cu) * size[0] * s, cv * h + (v - cv) * size[1] * s) for u, v in hh]
+
+
 def _plane_for(orient, x, y, z, t):
     if orient == "XZ":
         return dict(o=(x, y + t, z), x=(1, 0, 0), y=(0, 0, 1))
@@ -339,7 +349,7 @@ def build_libre(values, spec, errors=None):
                 if sh:
                     outline = [(u * w, v * h) for u, v in sh["outline"]]
                     if c.get("holes", True):
-                        holes = [[(u * w, v * h) for u, v in hh] for hh in sh["holes"]]
+                        holes = [_keep_hole(hh, w, h, sh.get("size")) for hh in sh["holes"]]
                 kind = c.get("kind", "tablero")
                 part = dict(id=c["id"] if n == 1 else "%s-%d" % (c["id"], i + 1), name=c["name"] if n == 1 else "%s %d" % (c["name"], i + 1),
                             role=c.get("role") or c["name"], material=mat if kind == "tablero" else kind, thickness=t,

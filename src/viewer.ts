@@ -64,6 +64,9 @@ export class Viewer {
   private raf = 0;
   private explode = 0;
   private framed = false;
+  /** El usuario giró o hizo zoom: ya no se re-encuadra solo al cambiar el tamaño. */
+  private userMoved = false;
+  private lastParts: Part[] = [];
   private ground: THREE.Mesh;
   /** Se ejecutan en cada cuadro (p. ej. para escalar manillas a tamaño de pantalla constante). */
   onFrame = new Set<() => void>();
@@ -80,6 +83,7 @@ export class Viewer {
     this.camera = new THREE.PerspectiveCamera(35, 1, 10, 100000);
     this.camera.position.set(3000, -3500, 2200);
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.addEventListener('start', () => { this.userMoved = true; });
     this.controls.enableDamping = true;
     this.scene.background = new THREE.Color(getComputedStyle(document.documentElement).getPropertyValue('--viewer-bg').trim() || '#eef0f2');
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8a8a, 1.6));
@@ -111,12 +115,15 @@ export class Viewer {
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
+    // al girar el iPad o cambiar el panel, el modelo se vuelve a encuadrar si no se ha movido la cámara
+    if (this.framed && !this.userMoved) this.frame(this.lastParts);
   }
 
   setParts(parts: Part[], materials: Material[], refit = false) {
     this.group.clear();
     this.group.add(partsToGroup(parts, materials));
     this.applyExplode();
+    this.lastParts = parts;
     if (!this.framed || refit) { this.frame(parts); this.framed = true; }
   }
 
@@ -124,14 +131,22 @@ export class Viewer {
     // sin piezas: encuadre de un volumen de 1 m para que se vea la grilla del piso
     const b = parts.length ? bounds3(parts) : { min: [-500, -500, 0] as V3, max: [500, 500, 1000] as V3, size: [1000, 1000, 1000] as V3 };
     const c = new THREE.Vector3((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
-    // distancia para que la esfera envolvente quepa tanto en vertical como en horizontal (iPhone en vertical)
-    const rs = Math.max(Math.hypot(...b.size) / 2, 150);
-    const vf = THREE.MathUtils.degToRad(this.camera.fov) / 2;
-    const hf = Math.atan(Math.tan(vf) * this.camera.aspect);
-    const dist = (rs / Math.sin(Math.min(vf, hf))) * 1.05;
+    // distancia justa para que las 8 esquinas de la caja quepan en pantalla (vertical u horizontal)
+    const d = new THREE.Vector3(1.3, -1.7, 1.0).normalize();
+    const right = new THREE.Vector3().crossVectors(d.clone().negate(), new THREE.Vector3(0, 0, 1)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, d.clone().negate()).normalize();
+    const tv = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2), th = tv * this.camera.aspect;
+    let dist = 300;
+    for (const x of [b.min[0], b.max[0]]) for (const y of [b.min[1], b.max[1]]) for (const z of [b.min[2], b.max[2]]) {
+      const rel = new THREE.Vector3(x, y, z).sub(c);
+      const zc = rel.dot(d);
+      dist = Math.max(dist, zc + Math.abs(rel.dot(right)) / th, zc + Math.abs(rel.dot(up)) / tv);
+    }
+    dist *= 1.12; // margen
     this.controls.target.copy(c);
-    this.camera.position.copy(c).add(new THREE.Vector3(1.3, -1.7, 1.0).normalize().multiplyScalar(dist));
+    this.camera.position.copy(c).addScaledVector(d, dist);
     this.camera.updateProjectionMatrix();
+    this.userMoved = false;
   }
 
   setExplode(f: number) { this.explode = f; this.applyExplode(); }

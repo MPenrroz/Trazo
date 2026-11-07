@@ -38,6 +38,16 @@ Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 - B7 (parcial) — **rectángulo con medidas** exactas.
 - C3 — pista en Funcionalidades; C4 — en vertical las imágenes van arriba.
 
+**Correcciones tras la prueba en iPad (7 nov):**
+- Panel y 3D desincronizados (ficha "Barrote" abierta, 3D en "Larguero"): la sincronía ahora depende del estado, no de banderas de eventos; una ficha abierta a la vez.
+- Fórmulas largas ilegibles: el campo enfocado ocupa toda la fila; la fórmula completa también aparece al mantener el dedo.
+- La ventana redonda se volvía elipse al estirar la silueta: los calados conservan su proporción (también en el script de Rhino).
+- Planos sin calados: las vistas dibujan los huecos y sus paredes.
+- Boceto superpuesto mal ubicado en diseño libre: parte apagado (las siluetas no son un alzado).
+- Anidado: el nombre de la pieza se ubica sobre material, no dentro del calado.
+- 3D pequeño: encuadre exacto por las esquinas de la caja y re-encuadre al girar el iPad si no se movió la cámara.
+- Íconos de deshacer/rehacer reemplazados por íconos dibujados.
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |

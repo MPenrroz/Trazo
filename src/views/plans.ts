@@ -6,7 +6,8 @@ import { h } from '../ui';
 /** Paso 4 · Planimetría técnica automática (ISO E, A3) para corroborar factibilidad contra el boceto. */
 export function plansView(root: HTMLElement) {
   const sheet = h('div', { class: 'sheet-wrap' });
-  let overlay = store.project.sketch.calibrated;
+  // en diseño libre las siluetas son piezas, no un alzado: la superposición parte apagada
+  let overlay = store.project.sketch.calibrated && store.project.template !== 'libre';
   let opacity = 0.5;
   let view: OverlayView = store.template.usesProfile ? 'left' : 'front';
   const render = () => { sheet.innerHTML = technicalDrawing(store.project, store.parts(), { sketchOverlay: overlay, overlayOpacity: opacity, overlayView: view }); };

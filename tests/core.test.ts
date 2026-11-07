@@ -389,3 +389,18 @@ describe('simetría sin puntos sobrantes', () => {
     expect(mergeCollinear(full, true, 2)).toHaveLength(4);
   });
 });
+
+describe('calados sin deformar', () => {
+  it('la ventana redonda sigue redonda en respaldo y piecera de distinto alto', () => {
+    const st = STARTERS[0];
+    const design = st.design();
+    const shapes = shapesFromSketch({ elements: st.sketch!(0, 0), mmPerPx: 1, calibrated: false, underlayOpacity: 1 });
+    const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.default]));
+    const parts = buildFree(values, design, shapes, 'mdf');
+    for (const id of ['respaldo', 'piecera']) {
+      const hole = parts.find((p) => p.id === id)!.holes![0];
+      const xs = hole.map((p) => p[0]), ys = hole.map((p) => p[1]);
+      expect(Math.max(...xs) - Math.min(...xs)).toBeCloseTo(Math.max(...ys) - Math.min(...ys), 0);
+    }
+  });
+});

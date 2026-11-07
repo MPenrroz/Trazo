@@ -29,8 +29,10 @@ export function modelView(root: HTMLElement) {
   // deshacer / rehacer de la edición en 3D y en fichas
   const undo: { free: FreeDesign; values: ParamValues }[] = [], redo: typeof undo = [];
   const snap = () => ({ free: structuredClone(store.project.free!), values: { ...store.project.values } });
-  const undoBtn = h('button', { class: 'ghost', title: 'Deshacer', disabled: true, onclick: () => step(undo, redo) }, '↶');
-  const redoBtn = h('button', { class: 'ghost', title: 'Rehacer', disabled: true, onclick: () => step(redo, undo) }, '↷');
+  const ICON_UNDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+  const ICON_REDO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>';
+  const undoBtn = h('button', { class: 'ghost icon-btn', title: 'Deshacer', 'aria-label': 'Deshacer', disabled: true, html: ICON_UNDO, onclick: () => step(undo, redo) });
+  const redoBtn = h('button', { class: 'ghost icon-btn', title: 'Rehacer', 'aria-label': 'Rehacer', disabled: true, html: ICON_REDO, onclick: () => step(redo, undo) });
   function step(from: typeof undo, to: typeof undo) {
     const s0 = from.pop(); if (!s0) return;
     to.push(snap());

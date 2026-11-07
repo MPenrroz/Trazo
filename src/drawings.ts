@@ -1,5 +1,6 @@
 import { bounds2, bounds3, dot, normal, round, toWorld } from './core/geom';
 import { placedProfile, type NestResult } from './core/nesting';
+import { pointInPoly } from './sketch/fit';
 import type { Part, Project, SketchDoc, V2, V3 } from './core/types';
 
 type View = 'front' | 'top' | 'left';
@@ -15,17 +16,24 @@ function proj(view: View, p: V3): [number, number, number] {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const SCALES = [1, 2, 5, 10, 15, 20, 25, 30, 50, 75, 100];
 
-interface Faces { pts: V2[]; depth: number }
+/** Cara proyectada; `holes` = calados (las tapas se dibujan con hueco real). */
+interface Faces { pts: V2[]; depth: number; holes?: V2[][] }
 
 function faces(p: Part, view: View): Faces[] {
   const out: Faces[] = [];
-  const ring = (w: number) => p.profile.map(([u, v]) => proj(view, toWorld(p.plane, u, v, w)));
-  const a = ring(0), b = ring(p.thickness);
+  const ring = (pts: V2[], w: number) => pts.map(([u, v]) => proj(view, toWorld(p.plane, u, v, w)));
   const avg = (r: [number, number, number][]) => r.reduce((s, q) => s + q[2], 0) / r.length;
-  out.push({ pts: a.map((q) => [q[0], q[1]]), depth: avg(a) }, { pts: b.map((q) => [q[0], q[1]]), depth: avg(b) });
-  for (let i = 0; i < a.length; i++) {
-    const j = (i + 1) % a.length, quad = [a[i], a[j], b[j], b[i]];
-    out.push({ pts: quad.map((q) => [q[0], q[1]]), depth: avg(quad) });
+  const flat = (r: [number, number, number][]) => r.map((q) => [q[0], q[1]] as V2);
+  const holes = p.holes ?? [];
+  const a = ring(p.profile, 0), b = ring(p.profile, p.thickness);
+  out.push({ pts: flat(a), depth: avg(a), holes: holes.map((h) => flat(ring(h, 0))) }, { pts: flat(b), depth: avg(b), holes: holes.map((h) => flat(ring(h, p.thickness))) });
+  // costados exteriores y paredes de cada calado
+  for (const loop of [p.profile, ...holes]) {
+    const la = ring(loop, 0), lb = ring(loop, p.thickness);
+    for (let i = 0; i < la.length; i++) {
+      const j = (i + 1) % la.length, quad = [la[i], la[j], lb[j], lb[i]];
+      out.push({ pts: flat(quad), depth: avg(quad) });
+    }
   }
   return out;
 }
@@ -85,7 +93,10 @@ export function technicalDrawing(project: Project, allParts: Part[], opts: Drawi
   let body = '';
   for (const view of ['front', 'top', 'left'] as View[]) {
     const all = parts.flatMap((p) => faces(p, view)).sort((a, c) => c.depth - a.depth);
-    body += `<g class="view">` + all.map((f) => `<polygon points="${f.pts.map(([u, v]) => toPaper(view, u, v).map((n) => n.toFixed(2)).join(',')).join(' ')}"/>`).join('') + `</g>`;
+    const loop = (pts: V2[]) => 'M' + pts.map(([u, v]) => toPaper(view, u, v).map((n) => n.toFixed(2)).join(',')).join('L') + 'Z';
+    body += `<g class="view">` + all.map((f) => (f.holes?.length
+      ? `<path fill-rule="evenodd" d="${[f.pts, ...f.holes].map(loop).join(' ')}"/>`
+      : `<polygon points="${f.pts.map(([u, v]) => toPaper(view, u, v).map((n) => n.toFixed(2)).join(',')).join(' ')}"/>`)).join('') + `</g>`;
     // cajeados/ranuras en línea oculta (segmentada) cuando su cara mira hacia la vista
     const vdir: V3 = view === 'front' ? [0, 1, 0] : view === 'top' ? [0, 0, 1] : [1, 0, 0];
     body += `<g class="hidden">` + parts.flatMap((p) => (Math.abs(dot(normal(p.plane), vdir)) > 0.9 ? p.pockets ?? [] : []).map((k) => {
@@ -144,7 +155,7 @@ export function technicalDrawing(project: Project, allParts: Part[], opts: Drawi
   <defs><marker id="tick" viewBox="-3 -3 6 6" markerWidth="6" markerHeight="6" orient="auto"><line x1="-2" y1="2" x2="2" y2="-2" stroke="#111" stroke-width="0.6"/></marker></defs>
   <style>
     .sheet{background:#fff;font-family:'Helvetica Neue',Arial,sans-serif}
-    .view polygon{fill:#fff;stroke:#111;stroke-width:0.25;stroke-linejoin:round}
+    .view polygon,.view path{fill:#fff;stroke:#111;stroke-width:0.25;stroke-linejoin:round}
     .dim line{stroke:#333;stroke-width:0.18}.dim text{font-size:2.6px;fill:#111}
     .vlabel{font-size:3px;font-weight:700;letter-spacing:.3px;fill:#111}
     .title rect,.title line{fill:none;stroke:#111;stroke-width:0.35}.title text{font-size:2.8px;fill:#111}.title .big{font-size:4.2px;font-weight:700}.title .small{font-size:2.3px;fill:#555}
@@ -225,7 +236,11 @@ export function nestingDrawing(nr: NestResult): string {
         if (pl.flipped ? k.face !== 'base' : k.face !== 'top') continue;
         g += `<polygon points="${placedProfile(pl, k.outline).map(([x, y]) => `${pad + x},${oy + SH - y}`).join(' ')}" class="pocket"/>`;
       }
-      const cx = pad + pl.x + pl.w / 2, cy = oy + SH - (pl.y + pl.h / 2);
+      // la etiqueta va sobre material (no dentro de un calado ni fuera de la silueta)
+      const inMat = ([x, y]: V2) => pointInPoly([x, y], placedProfile(pl, pl.part.profile)) && !(pl.part.holes ?? []).some((h) => pointInPoly([x, y], placedProfile(pl, h)));
+      const spot = ([[0.5, 0.5], [0.5, 0.22], [0.5, 0.78], [0.3, 0.5], [0.7, 0.5], [0.25, 0.2], [0.75, 0.2]] as V2[])
+        .map(([fx, fy]) => [pl.x + pl.w * fx, pl.y + pl.h * fy] as V2).find(inMat) ?? [pl.x + pl.w / 2, pl.y + pl.h / 2];
+      const cx = pad + spot[0], cy = oy + SH - spot[1];
       const fs = Math.max(18, Math.min(42, Math.min(pl.w, pl.h) / 5));
       g += `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle" font-size="${fs}" class="pl">${esc(pl.part.name)}</text>`;
     }

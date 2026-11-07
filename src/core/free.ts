@@ -96,6 +96,15 @@ export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
   return out;
 }
 
+/** Calado normalizado → mm: centro estirado con la pieza, forma escalada uniformemente (factor menor). */
+export function keepHole(hh: V2[], w: number, h: number, size?: V2): V2[] {
+  if (!size || size[0] <= 0 || size[1] <= 0) return hh.map(([u, v]) => [u * w, v * h] as V2);
+  const b = bounds2(hh);
+  const cu = (b.x0 + b.x1) / 2, cv = (b.y0 + b.y1) / 2;
+  const s = Math.min(w / size[0], h / size[1]);
+  return hh.map(([u, v]) => [cu * w + (u - cu) * size[0] * s, cv * h + (v - cv) * size[1] * s] as V2);
+}
+
 function planeFor(orient: Component['orient'], x: number, y: number, z: number, t: number): Plane {
   if (orient === 'XZ') return { o: [x, y + t, z], x: [1, 0, 0], y: [0, 0, 1] }; // normal −Y → ocupa [y, y+t]
   if (orient === 'YZ') return { o: [x, y, z], x: [0, 1, 0], y: [0, 0, 1] }; // normal +X
@@ -130,7 +139,9 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
         if (!sh) { if (i === 0) errors.push(`${c.name}: la forma del boceto ya no existe; se usa un rectángulo`); }
         else {
           outline = sh.outline.map(([u, v]) => [u * w, v * h]);
-          if (c.holes) holes = sh.holes.map((hh) => hh.map(([u, v]) => [u * w, v * h] as V2));
+          // los calados no se deforman: se ubican estirados con la silueta, pero conservan su proporción
+          // (una ventana redonda sigue redonda aunque el respaldo cambie de alto)
+          if (c.holes) holes = sh.holes.map((hh) => keepHole(hh, w, h, sh.size));
         }
       }
       const kind = c.kind ?? 'tablero';

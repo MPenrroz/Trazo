@@ -40,10 +40,10 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
   const root = h('div', { class: 'free' }) as unknown as PiecesEl;
   let openId: string | null = initialOpen;
   root.selectPiece = (id) => {
-    openId = id;
+    openId = id; // se fija antes: los eventos "toggle" que siguen se reconocen como programáticos
     root.querySelectorAll<HTMLDetailsElement>('details.piece').forEach((d) => {
       const on = d.dataset.id === id;
-      if (d.open !== on) { d.dataset.silent = '1'; d.open = on; }
+      if (d.open !== on) d.open = on;
       if (on) {
         // desplaza solo el panel lateral (no la página, para no mover el visor bajo el dedo)
         const panel = d.closest('.panel') as HTMLElement | null;
@@ -84,7 +84,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
   function formula(c: Component, f: 'w' | 'h' | 't' | 'x' | 'y' | 'z' | 'count' | 'when', label: string, placeholder = '') {
     const hint = h('span', { class: 'hint' });
     hintEls.set(`${c.id}:${f}`, hint);
-    const inp = h('input', { value: c[f], placeholder, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off', class: 'mono' });
+    const inp = h('input', { value: c[f], title: c[f], placeholder, autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', autocomplete: 'off', class: 'mono' });
     inp.addEventListener('change', () => set(c, (x) => { x[f] = inp.value.trim(); }));
     return h('label', { class: 'ff' }, h('span', { class: 'fl' }, label, hint), inp);
   }
@@ -92,10 +92,10 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
   function card(c: Component, idx: number, total: number) {
     const shapes = store.shapes;
     const det = h('details', { class: `piece ${c.kind}`, open: openId === c.id, 'data-id': c.id });
+    // abrir/cerrar una ficha sincroniza la selección en 3D; solo una ficha abierta a la vez
     det.addEventListener('toggle', () => {
-      const silent = det.dataset.silent; delete det.dataset.silent;
-      if (det.open) { openId = c.id; if (!silent) onOpen?.(c.id); }
-      else if (openId === c.id) { openId = null; if (!silent) onOpen?.(null); }
+      if (det.open && openId !== c.id) { root.selectPiece(c.id); onOpen?.(c.id); }
+      else if (!det.open && openId === c.id) { openId = null; onOpen?.(null); }
     });
     const sel = <T extends string>(value: T, opts: Record<string, string>, onPick: (v: T) => void) =>
       h('select', { onchange: (e: Event) => onPick((e.target as HTMLSelectElement).value as T) }, ...Object.entries(opts).map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
