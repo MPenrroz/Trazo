@@ -17,6 +17,7 @@ const design = (p: Project): FreeDesign => (p.free ??= emptyFree());
 
 export { applyStarter } from './design-change';
 import { applyStarter } from './design-change';
+import { getSample, openInterpret } from './interpret';
 
 /** Miniatura SVG de una forma del boceto. */
 function thumb(shapeId: string) {
@@ -241,6 +242,10 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     onOpen?.(c.id);
   }
 
+  // "Desde una imagen": aparece si hay referencias y la página puede consultar a Claude
+  const aiBtn = h('button', { class: 'ai-btn', hidden: true, onclick: () => openInterpret(store.project.references, 0, () => { changed(); render(); }) }, '✦ Crear desde una imagen de referencia');
+  getSample().then((s) => { aiBtn.hidden = !s || !store.project.references.length; });
+
   function render() {
     hintEls.clear();
     const d = design(store.project);
@@ -252,6 +257,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         h('b', null, 'Tu producto aún no tiene piezas'),
         h('p', null, 'Cada pieza es un tablero: rectangular o con la silueta que dibujes en el Boceto. Después la estiras y mueves tocándola en el 3D.'),
         h('button', { onclick: () => addPiece() }, '+ Agregar la primera pieza'),
+        aiBtn,
         h('p', { class: 'muted' }, 'O parte de un ejemplo (todo es editable):'),
         h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost sm', title: st.description, onclick: async () => { if (await applyStarter(st)) { changed(); render(); } } }, st.name)))),
       ...d.components.map((c, i) => card(c, i, d.components.length)),

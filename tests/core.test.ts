@@ -441,3 +441,49 @@ describe('edición simple de piezas', () => {
     expect(parseWhen({ ...bar, when: 'zocalo > 0' }, params)).toBeNull();
   });
 });
+
+import { buildPrompt, sanitizeProposal } from '../src/core/proposal';
+
+describe('propuesta desde imagen', () => {
+  const raw = {
+    name: 'Banco con respaldo', summary: 'Banco de dos patas con respaldo curvo.', assumptions: ['Alto de asiento 450 mm'],
+    params: [
+      { key: 'largo', label: 'Largo', type: 'number', default: 1200, min: 800, max: 1800, step: 10, exposed: true },
+      { key: 'Alto Asiento', label: 'Alto asiento', type: 'number', default: 450 },
+      { key: 'largo', label: 'Duplicado', type: 'number', default: 1 },
+      { key: 'respaldo', label: 'Con respaldo', type: 'bool', default: true },
+    ],
+    silhouettes: [{ id: 'pata', name: 'Pata curva', outline: [[0, 0], [1, 0], [1.2, 1], [0, 1]], holes: [[[0.4, 0.4], [0.6, 0.4], [0.5, 0.6]]] }],
+    components: [
+      { name: 'Asiento', orient: 'XY', w: 'largo', h: '400', t: 't', x: '0', y: '0', z: 'alto_asiento - t' },
+      { name: 'Pata', orient: 'YZ', shape: 'pata', w: '400', h: 'alto_asiento - t', x: 'i*(largo - t)', count: '2' },
+      { name: 'Respaldo', orient: 'XZ', shape: 'nube', w: 'largo', h: '300', y: '400 - t', z: 'alto_asiento', when: 'respaldo' },
+      { name: 'Rota', orient: 'ZZ', w: 'alto_x', h: '100' },
+    ],
+  };
+  const p = sanitizeProposal(raw, 18);
+  it('limpia claves, descarta duplicados y acota rangos', () => {
+    expect(p.design.params.map((q) => q.key)).toEqual(['largo', 'alto_asiento', 'respaldo']);
+    const a = p.design.params[1];
+    expect(a.min).toBeLessThan(450); expect(a.max).toBeGreaterThan(450);
+    expect(p.issues.some((m) => /repetido/.test(m))).toBe(true);
+  });
+  it('enlaza siluetas, acota puntos y avisa piezas sin silueta o con fórmulas rotas', () => {
+    expect(p.silhouettes).toHaveLength(1);
+    expect(Math.max(...p.silhouettes[0].outline.map((q) => q[0]))).toBe(1);
+    expect(p.design.components[1].shape).toBe(p.silhouettes[0].id);
+    expect(p.design.components[2].shape).toBe('rect');
+    expect(p.design.components[3].orient).toBe('XZ');
+    expect(p.issues.some((m) => /"nube" no encontrada/.test(m))).toBe(true);
+    expect(p.issues.some((m) => /alto_x/.test(m))).toBe(true);
+  });
+  it('tolera respuestas vacías o con basura', () => {
+    expect(sanitizeProposal(null).issues[0]).toMatch(/no trae piezas/);
+    expect(sanitizeProposal({ components: 'x', params: [null, 3] }).design.components).toEqual([]);
+  });
+  it('las instrucciones incluyen la medida conocida y el espesor', () => {
+    const t = buildPrompt({ known: 'ancho 106 cm', thickness: 18 });
+    expect(t).toContain('ancho 106 cm');
+    expect(t).toContain('18 mm');
+  });
+});

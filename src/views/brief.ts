@@ -3,6 +3,7 @@ import { store } from '../core/store';
 import { TEMPLATES, getTemplate } from '../core/templates';
 import { STARTERS } from '../core/free';
 import { applyStarter, applyTemplate, convertToFree, freeEquivalent, replaceDesign } from './design-change';
+import { getSample, openInterpret } from './interpret';
 import { card, h, pickFiles, readImage, toast } from '../ui';
 
 const TAGS = ['Forma', 'Material', 'Uso', 'Detalle', 'Ambiente', 'Unión'];
@@ -24,9 +25,14 @@ export function briefView(root: HTMLElement) {
   newFunc.addEventListener('keydown', (e) => { if (e.key === 'Enter') addFunc(); });
 
   const gallery = h('div', { class: 'gallery' });
+  // "Crear diseño" con Claude: solo donde la página puede consultarlo con imágenes
+  let aiOn = false;
+  const aiHint = h('p', { class: 'ai-hint', hidden: true }, '✦ Con una imagen puedes crear un diseño inicial: toca "Crear diseño" bajo la foto.');
+  getSample().then((s) => { aiOn = !!s; aiHint.hidden = !aiOn || !store.project.references.length; if (aiOn) renderGallery(); });
   const renderGallery = () => {
     gallery.replaceChildren(...store.project.references.map((r, i) => h('figure', { class: 'ref' },
       h('img', { src: r.src, alt: r.caption, loading: 'lazy' }),
+      aiOn ? h('button', { class: 'ai-btn', onclick: () => openInterpret(store.project.references, i) }, '✦ Crear diseño') : null,
       h('select', { onchange: (e: Event) => store.update((x) => { x.references[i].tag = (e.target as HTMLSelectElement).value; }, 'brief') },
         ...TAGS.map((t) => h('option', { selected: t === r.tag }, t))),
       h('input', { value: r.caption, placeholder: 'Qué rescatar de esta imagen…', oninput: (e: Event) => store.update((x) => { x.references[i].caption = (e.target as HTMLInputElement).value; }, 'brief') }),
@@ -42,6 +48,7 @@ export function briefView(root: HTMLElement) {
       store.update((x) => x.references.push({ id: uid('r'), src: img.src, caption: '', tag: 'Forma' }), 'brief');
     }
     renderGallery();
+    aiHint.hidden = !aiOn || !store.project.references.length;
     if (fs.length) toast(`${fs.length} imagen(es) agregada(s)`);
   }
   renderGallery();
@@ -89,7 +96,7 @@ export function briefView(root: HTMLElement) {
       card('Manufactura prevista', methods, h('p', { class: 'muted' }, 'Define qué restricciones se verifican (tamaño de cama, espesor máximo, herramienta). Ajustable en Fabricación.')),
       card('Notas de diseño', h('textarea', { rows: 4, placeholder: 'Uniones, acabados, dudas a resolver en Rhino…', oninput: (e: Event) => set('notes', (e.target as HTMLTextAreaElement).value) }, p.notes))),
     h('div', { class: 'col' },
-      card('Imágenes referenciales', h('p', { class: 'muted' }, 'Arrastra, pega (⌘V) o elige desde Fotos/Archivos. Etiqueta qué tomar de cada una. La primera es la portada de la tienda.'), gallery))));
+      card('Imágenes referenciales', h('p', { class: 'muted' }, 'Arrastra, pega (⌘V) o elige desde Fotos/Archivos. Etiqueta qué tomar de cada una. La primera es la portada de la tienda.'), aiHint, gallery))));
 
   const onPaste = async (e: ClipboardEvent) => {
     if ((e.target as HTMLElement)?.closest('input,textarea')) return;

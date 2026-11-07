@@ -58,6 +58,12 @@ Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 - Los cambios hechos en las fichas y en Parámetros entran al deshacer del visor.
 - Parámetros nuevos toman su nombre corto del nombre visible.
 
+**Crear diseño desde una imagen (7 nov, prototipo opción A):**
+- Botón "✦ Crear diseño" bajo cada imagen de referencia (y en el estado vacío de Piezas) cuando la página puede consultar a Claude con imágenes (enlace de claude.ai, capacidad `sample`).
+- Pide una medida conocida y, opcionalmente, qué tomar de la imagen; muestra lo que entendió (piezas, medidas, siluetas, supuestos) antes de aplicar; aplicar confirma y se puede deshacer.
+- La respuesta se valida y se construye con el motor real antes de usarla (`core/proposal.ts`, con tests); lo que no sirve se informa.
+- Siluetas al Boceto con su nombre y la foto como calco; en la app instalada el botón no aparece (falta la opción B: servidor propio).
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |
