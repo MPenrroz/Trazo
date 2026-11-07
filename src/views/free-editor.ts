@@ -1,15 +1,12 @@
+import { applyDrag, type Field } from '../core/direct';
 import { evalExpr } from '../core/expr';
+import { advancedRepeat, fieldValue, isNumber, linkedParam, parseRepeat, parseWhen, setRepeat, type Axis } from '../core/simple';
 import { STARTERS, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
 import type { ParamDef, Project, V2 } from '../core/types';
 import { confirmDialog, h, toast } from '../ui';
 
-const ORIENT: Record<Component['orient'], string> = {
-  XZ: 'Frontal (ancho → X largo · alto → Z)',
-  YZ: 'Lateral (ancho → Y fondo · alto → Z)',
-  XY: 'Horizontal (ancho → X · alto → Y · espesor hacia arriba)',
-};
 const KIND: Record<Component['kind'], string> = { tablero: 'Tablero CNC', tapiz: 'Tapiz (espuma + tela)', ref: 'Referencia (no se fabrica)' };
 const FIELDS: { k: 'w' | 'h' | 't' | 'x' | 'y' | 'z'; label: string }[] = [
   { k: 'w', label: 'Ancho' }, { k: 'h', label: 'Alto' }, { k: 't', label: 'Espesor' },
@@ -36,7 +33,7 @@ function thumb(shapeId: string) {
 export type PiecesEl = HTMLElement & { selectPiece(id: string | null): void };
 
 /** Lista de piezas del diseño libre. `changed` refresca el 3D; `onOpen` avisa qué ficha se abrió (para seleccionarla en 3D). */
-export function piecesEditor(changed: () => void, onOpen?: (compId: string | null) => void, initialOpen: string | null = null): PiecesEl {
+export function piecesEditor(changed: () => void, onOpen?: (compId: string | null) => void, initialOpen: string | null = null, remember?: () => void): PiecesEl {
   const root = h('div', { class: 'free' }) as unknown as PiecesEl;
   let openId: string | null = initialOpen;
   root.selectPiece = (id) => {
@@ -53,6 +50,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
   };
 
   const set = (c: Component, fn: (c: Component) => void, rerender = false) => {
+    remember?.();
     store.update((p) => { const x = design(p).components.find((y) => y.id === c.id); if (x) fn(x); }, 'free');
     changed();
     if (rerender) render(); else updateHints();
@@ -89,6 +87,101 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     return h('label', { class: 'ff' }, h('span', { class: 'fl' }, label, hint), inp);
   }
 
+  /** Cambia una medida o posición escribiendo su valor: se traduce a parámetro, número o ajuste de fórmula. */
+  function applyValue(c: Component, f: Field, delta: number) {
+    if (!Number.isFinite(delta) || Math.abs(delta) < 1e-9) return;
+    remember?.();
+    const res = applyDrag(design(store.project), store.values, store.params, c.id, [{ field: f, delta }]);
+    store.update((p) => { p.free = res.design; p.values = res.values; }, 'free');
+    changed(); render();
+    if (res.notes.length) toast(res.notes.join(' · '));
+  }
+  /** Reemplaza una pieza completa (repetición, condición). */
+  function replace(c: Component, next: Component) {
+    remember?.();
+    store.update((p) => { const arr = design(p).components; const k = arr.findIndex((y) => y.id === c.id); if (k >= 0) arr[k] = next; }, 'free');
+    changed(); render();
+  }
+  const fmtN = (v: number) => (Number.isFinite(v) ? String(Math.round(v * 10) / 10) : '');
+
+  /** Campo numérico simple; muestra si está ligado a un parámetro o calculado por una fórmula. */
+  function numField(c: Component, f: Field, label: string) {
+    const params = store.params;
+    const val = fieldValue(c, f, store.values);
+    const link = linkedParam(c[f], params);
+    // en posiciones las fórmulas son habituales: solo se marca cuando están ligadas a un parámetro
+    const calc = !link && !isNumber(c[f]) && !['x', 'y', 'z'].includes(f);
+    const inp = h('input', { type: 'number', inputmode: 'decimal', value: fmtN(val), 'aria-label': label });
+    inp.addEventListener('change', () => applyValue(c, f, Number(inp.value.replace(',', '.')) - val));
+    return h('label', { class: 'ff num' }, h('span', { class: 'fl' }, label), inp,
+      link ? h('small', { class: 'link-chip', title: `Ligado al parámetro "${link.label}": cambiarlo aquí cambia el parámetro` }, `↔ ${link.label}`)
+        : calc ? h('small', { class: 'link-chip calc', title: c[f] }, 'calculada') : null);
+  }
+
+  function thicknessField(c: Component) {
+    if (c.kind !== 'tablero') return numField(c, 't', 'Espesor');
+    const avail = store.material.thicknesses;
+    const cur = c.t.trim();
+    const opts: [string, string][] = [['t', `${store.values.t} mm · tablero`], ...avail.map((n) => [String(n), `${n} mm`] as [string, string])];
+    if (cur !== 't' && !avail.map(String).includes(cur)) opts.push([cur, `${fmtN(fieldValue(c, 't', store.values))} mm (fórmula)`]);
+    return h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Espesor'),
+      h('select', { onchange: (e: Event) => set(c, (x) => { x.t = (e.target as HTMLSelectElement).value; }, true) },
+        ...opts.map(([v, l]) => h('option', { value: v, selected: v === cur }, l))));
+  }
+
+  const ORIENT_ICON: Record<Component['orient'], [string, string]> = {
+    XZ: ['De frente', '<svg viewBox="0 0 32 32"><rect x="9" y="5" width="14" height="22" rx="1"/></svg>'],
+    YZ: ['De lado', '<svg viewBox="0 0 32 32"><path d="M10 9 22 4v20l-12 5z"/></svg>'],
+    XY: ['Acostada', '<svg viewBox="0 0 32 32"><path d="M4 20 12 12h16l-8 8z"/></svg>'],
+  };
+  const AXIS_LABEL: Record<Axis, string> = { x: 'Largo (X)', y: 'Fondo (Y)', z: 'Alto (Z)' };
+
+  function repeatBlock(c: Component) {
+    const count = fieldValue(c, 'count', store.values);
+    if (advancedRepeat(c)) return h('p', { class: 'muted small' }, `Se repite ${count} veces con una regla avanzada (ver fórmulas).`);
+    const r = parseRepeat(c);
+    const on = c.count.trim() !== '1' && c.count.trim() !== '';
+    const defAxis: Axis = c.orient === 'YZ' ? 'x' : c.orient === 'XY' ? 'z' : 'x';
+    const toggle = h('label', { class: 'mini-toggle' }, h('input', { type: 'checkbox', checked: on, onchange: (e: Event) => {
+      const v = (e.target as HTMLInputElement).checked;
+      const thick = fieldValue(c, c.orient === 'XZ' ? 'w' : 't', store.values);
+      replace(c, v ? setRepeat(c, '2', r.axis ?? defAxis, r.step || String(Math.round((thick || 100) + 50))) : setRepeat(c, '1', null, ''));
+    } }), 'Repetir esta pieza');
+    if (!on) return h('div', { class: 'rep' }, toggle);
+    const stepLink = linkedParam(r.step, store.params);
+    const stepVal = (() => { try { return evalExpr(r.step || '0', { ...scopeFrom(store.values), i: 0, n: count }); } catch { return NaN; } })();
+    const cnt = h('input', { type: 'number', inputmode: 'numeric', min: '1', value: String(count), 'aria-label': 'Cantidad' });
+    cnt.addEventListener('change', () => { const n = Math.max(1, Math.round(Number(cnt.value))); replace(c, setRepeat(c, String(n), r.axis ?? defAxis, r.step || '100')); });
+    const step = h('input', { type: 'number', inputmode: 'decimal', value: fmtN(stepVal), 'aria-label': 'Separación' });
+    step.addEventListener('change', () => {
+      const v = Number(step.value.replace(',', '.'));
+      if (!Number.isFinite(v)) return;
+      if (stepLink && (stepLink.type === 'number' || stepLink.type === 'int')) {
+        remember?.();
+        store.update((p) => { p.values[stepLink.key] = v; }, 'free'); changed(); render();
+        toast(`«${stepLink.label}» = ${v} mm`);
+      } else replace(c, setRepeat(c, c.count, r.axis ?? defAxis, String(v)));
+    });
+    return h('div', { class: 'rep' }, toggle,
+      h('div', { class: 'grid3' },
+        h('label', { class: 'ff num' }, h('span', { class: 'fl' }, 'Cantidad'), cnt, !isNumber(c.count) ? h('small', { class: 'link-chip calc', title: c.count }, 'automática') : null),
+        h('label', { class: 'ff num' }, h('span', { class: 'fl' }, 'Cada (mm)'), step, stepLink ? h('small', { class: 'link-chip' }, `↔ ${stepLink.label}`) : !isNumber(r.step) && r.step ? h('small', { class: 'link-chip calc', title: r.step }, 'calculada') : null),
+        h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Dirección'),
+          h('select', { onchange: (e: Event) => replace(c, setRepeat(c, c.count, (e.target as HTMLSelectElement).value as Axis, r.step || '100')) },
+            ...(['x', 'y', 'z'] as Axis[]).map((a) => h('option', { value: a, selected: a === (r.axis ?? defAxis) }, AXIS_LABEL[a]))))));
+  }
+
+  function whenSelect(c: Component) {
+    const bools = store.params.filter((p) => p.type === 'bool');
+    const w = parseWhen(c, store.params);
+    const val = w === null ? '__adv' : w.kind === 'always' ? '' : w.key;
+    return h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Aparece'),
+      h('select', { onchange: (e: Event) => { const v = (e.target as HTMLSelectElement).value; if (v !== '__adv') set(c, (x) => { x.when = v; }, true); } },
+        h('option', { value: '', selected: val === '' }, 'Siempre'),
+        ...bools.map((b) => h('option', { value: b.key, selected: val === b.key }, `Solo si: ${b.label}`)),
+        val === '__adv' ? h('option', { value: '__adv', selected: true, disabled: true }, 'Condición avanzada') : null));
+  }
+
   function card(c: Component, idx: number, total: number) {
     const shapes = store.shapes;
     const det = h('details', { class: `piece ${c.kind}`, open: openId === c.id, 'data-id': c.id });
@@ -100,30 +193,42 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     const sel = <T extends string>(value: T, opts: Record<string, string>, onPick: (v: T) => void) =>
       h('select', { onchange: (e: Event) => onPick((e.target as HTMLSelectElement).value as T) }, ...Object.entries(opts).map(([k, l]) => h('option', { value: k, selected: k === value }, l)));
     const shapeOpts: Record<string, string> = { rect: 'Rectángulo', ...Object.fromEntries(Object.entries(shapes).map(([id, s]) => [id, s.label])) };
-    if (c.shape !== 'rect' && !shapes[c.shape]) shapeOpts[c.shape] = '⚠︎ forma borrada';
-    const move = (d: number) => { store.update((p) => { const arr = design(p).components; const [x] = arr.splice(idx, 1); arr.splice(idx + d, 0, x); }, 'free'); changed(); render(); };
+    if (c.shape !== 'rect' && !shapes[c.shape]) shapeOpts[c.shape] = '⚠︎ silueta borrada';
+    const move = (d: number) => { remember?.(); store.update((p) => { const arr = design(p).components; const [x] = arr.splice(idx, 1); arr.splice(idx + d, 0, x); }, 'free'); changed(); render(); };
+    const count = fieldValue(c, 'count', store.values);
+    const w = parseWhen(c, store.params);
+    const whenTxt = w?.kind === 'param' ? ` · si ${store.params.find((p) => p.key === w.key)?.label ?? w.key}` : w === null ? ' · condicional' : '';
 
     det.append(
       h('summary', null, c.shape !== 'rect' ? thumb(c.shape) : h('span', { class: 'thumb' }, '▭'),
-        h('span', { class: 'pname' }, h('b', null, c.name), h('small', null, `${KIND[c.kind].split(' (')[0]} · ${c.orient}${c.count.trim() !== '1' ? ` · ×${c.count}` : ''}${c.when.trim() ? ` · si ${c.when}` : ''}`))),
+        h('span', { class: 'pname' }, h('b', null, c.name), h('small', null, `${KIND[c.kind].split(' (')[0]} · ${ORIENT_ICON[c.orient][0].toLowerCase()}${count !== 1 ? ` · ×${count}` : ''}${whenTxt}`))),
       h('div', { class: 'pbody' },
         h('div', { class: 'grid2' },
           h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Nombre'), h('input', { value: c.name, onchange: (e: Event) => set(c, (x) => { x.name = (e.target as HTMLInputElement).value; }, true) })),
-          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Grupo (despiece)'), h('input', { value: c.role, placeholder: c.name, onchange: (e: Event) => set(c, (x) => { x.role = (e.target as HTMLInputElement).value; }) })),
-          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Forma'), sel(c.shape, shapeOpts, (v) => set(c, (x) => { x.shape = v; }, true))),
-          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Tipo'), sel(c.kind, KIND, (v) => set(c, (x) => { x.kind = v; }, true)))),
-        h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Orientación'), sel(c.orient, ORIENT, (v) => set(c, (x) => { x.orient = v; }, true))),
+          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Forma'), sel(c.shape, shapeOpts, (v) => set(c, (x) => { x.shape = v; }, true)))),
+        h('div', { class: 'orient', role: 'radiogroup', 'aria-label': 'Orientación' },
+          ...(Object.keys(ORIENT_ICON) as Component['orient'][]).map((o) => h('button', { class: `orient-btn ${o === c.orient ? 'on' : ''}`, role: 'radio', 'aria-checked': String(o === c.orient), onclick: () => { if (o !== c.orient) set(c, (x) => { x.orient = o; }, true); } },
+            h('span', { html: ORIENT_ICON[o][1] }), ORIENT_ICON[o][0]))),
+        h('div', { class: 'grid3' }, numField(c, 'w', 'Ancho'), numField(c, 'h', 'Alto'), thicknessField(c)),
+        h('div', { class: 'grid3' }, numField(c, 'x', 'X · largo'), numField(c, 'y', 'Y · fondo'), numField(c, 'z', 'Z · altura')),
+        h('p', { class: 'muted small' }, 'Medidas en mm. La posición es la esquina más cercana al origen; también puedes arrastrar la pieza en el 3D.'),
+        repeatBlock(c),
+        h('div', { class: 'grid2' },
+          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Tipo'), sel(c.kind, KIND, (v) => set(c, (x) => { x.kind = v; }, true))),
+          whenSelect(c)),
         c.shape !== 'rect' && shapes[c.shape]?.holes.length ? h('label', { class: 'mini-toggle' }, h('input', { type: 'checkbox', checked: c.holes, onchange: (e: Event) => set(c, (x) => { x.holes = (e.target as HTMLInputElement).checked; }) }), `Calar las ${shapes[c.shape].holes.length} forma(s) interiores`) : null,
-        h('div', { class: 'grid3' }, ...FIELDS.slice(0, 3).map((f) => formula(c, f.k, f.label))),
-        h('div', { class: 'grid3' }, ...FIELDS.slice(3).map((f) => formula(c, f.k, f.label))),
-        h('div', { class: 'grid2' }, formula(c, 'count', 'Cantidad', '1'), formula(c, 'when', 'Presente si', 'p. ej. baranda')),
+        h('details', { class: 'adv' }, h('summary', null, 'Ver fórmulas (avanzado)'),
+          h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Grupo en el despiece'), h('input', { value: c.role, placeholder: c.name, onchange: (e: Event) => set(c, (x) => { x.role = (e.target as HTMLInputElement).value; }) })),
+          h('div', { class: 'grid3' }, ...FIELDS.slice(0, 3).map((f) => formula(c, f.k, f.label))),
+          h('div', { class: 'grid3' }, ...FIELDS.slice(3).map((f) => formula(c, f.k, f.label))),
+          h('div', { class: 'grid2' }, formula(c, 'count', 'Cantidad', '1'), formula(c, 'when', 'Presente si', 'p. ej. baranda'))),
         h('div', { class: 'row wrap' },
-          h('button', { class: 'ghost sm', onclick: () => { store.update((p) => { design(p).components.splice(idx + 1, 0, { ...structuredClone(c), id: uid('c-'), name: `${c.name} copia` }); }, 'free'); changed(); render(); } }, 'Duplicar'),
+          h('button', { class: 'ghost sm', onclick: () => { remember?.(); store.update((p) => { design(p).components.splice(idx + 1, 0, { ...structuredClone(c), id: uid('c-'), name: `${c.name} copia` }); }, 'free'); changed(); render(); } }, 'Duplicar'),
           c.kind !== 'ref' ? h('button', { class: 'ghost sm', title: 'Dibujar calados o cambiar la silueta en el Boceto', onclick: () => drawOnPiece(c.id) }, 'Dibujar en la pieza') : null,
-          idx > 0 ? h('button', { class: 'ghost sm', onclick: () => move(-1) }, '↑') : null,
-          idx < total - 1 ? h('button', { class: 'ghost sm', onclick: () => move(1) }, '↓') : null,
+          idx > 0 ? h('button', { class: 'ghost sm', 'aria-label': 'Subir en la lista', onclick: () => move(-1) }, '↑') : null,
+          idx < total - 1 ? h('button', { class: 'ghost sm', 'aria-label': 'Bajar en la lista', onclick: () => move(1) }, '↓') : null,
           h('span', { class: 'sep' }),
-          h('button', { class: 'ghost sm danger', onclick: async () => { if (await confirmDialog(`¿Eliminar la pieza "${c.name}"?`)) { store.update((p) => { design(p).components.splice(idx, 1); }, 'free'); changed(); render(); } } }, 'Eliminar'))));
+          h('button', { class: 'ghost sm danger', onclick: async () => { if (await confirmDialog(`¿Eliminar la pieza "${c.name}"?`)) { remember?.(); store.update((p) => { design(p).components.splice(idx, 1); }, 'free'); changed(); render(); } } }, 'Eliminar'))));
     return det;
   }
 
@@ -131,6 +236,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     const d = design(store.project);
     const c = newComponent({ name: `Pieza ${d.components.length + 1}` });
     openId = c.id;
+    remember?.();
     store.update((p) => { design(p).components.push(c); }, 'free'); changed(); render();
     onOpen?.(c.id);
   }
@@ -150,9 +256,9 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost sm', title: st.description, onclick: async () => { if (await applyStarter(st)) { changed(); render(); } } }, st.name)))),
       ...d.components.map((c, i) => card(c, i, d.components.length)),
       d.components.length ? h('button', { class: 'add-piece', onclick: () => addPiece() }, '+ Agregar pieza') : null,
-      h('div', { class: 'vars' }, h('small', null, 'Variables para las fórmulas'), h('div', { class: 'chips' }, ...vars.map((v) => h('code', null, v))),
-        h('p', { class: 'muted' }, 'Operaciones: + − * / ( ), min(), max(), round(), floor(), ceil(), comparaciones y "condición ? a : b". La posición es la esquina mínima de la pieza; `i` es el número de copia (0, 1, 2…) y `n` la cantidad.'),
-        h('p', { class: 'muted' }, `Formas cerradas en el boceto: ${nShapes}. `, h('a', { class: 'link', href: '#/boceto' }, 'Dibujar o editar siluetas →')))].filter((x) => !!x) as HTMLElement[]);
+      h('p', { class: 'muted' }, `Siluetas en el boceto: ${nShapes}. `, h('a', { class: 'link', href: '#/boceto' }, 'Dibujar o editar siluetas →')),
+      h('details', { class: 'vars' }, h('summary', null, 'Ayuda de fórmulas (avanzado)'), h('div', { class: 'chips' }, ...vars.map((v) => h('code', null, v))),
+        h('p', { class: 'muted' }, 'Operaciones: + − * / ( ), min(), max(), round(), floor(), ceil(), comparaciones y "condición ? a : b". La posición es la esquina mínima de la pieza; `i` es el número de copia (0, 1, 2…) y `n` la cantidad.'))].filter((x) => !!x) as HTMLElement[]);
     updateHints();
   }
   render();
@@ -162,9 +268,10 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
 const slugKey = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, '_$1') || 'p';
 
 /** Editor de los parámetros propios del diseño libre (qué existe, rangos y qué ve el cliente). */
-export function paramDefsEditor(changed: () => void): HTMLElement {
+export function paramDefsEditor(changed: () => void, remember?: () => void): HTMLElement {
   const root = h('div', { class: 'free' });
   const set = (i: number, fn: (d: ParamDef) => void, rerender = false) => {
+    remember?.();
     store.update((p) => fn(design(p).params[i]), 'free');
     changed();
     if (rerender) render();
@@ -187,15 +294,20 @@ export function paramDefsEditor(changed: () => void): HTMLElement {
   function render() {
     const d = design(store.project);
     root.replaceChildren(
-      h('p', { class: 'muted' }, 'Tus parámetros: el nombre corto (clave) es el que usas en las fórmulas de las piezas. Marca "Cliente" para que aparezca en la tienda con ese rango.'),
+      h('p', { class: 'muted' }, 'Tus parámetros son las medidas y opciones del producto (ancho, alto, con o sin baranda). Las piezas se ligan a ellos y el cliente puede cambiar los que marques.'),
       ...d.params.map((p, i) => {
         const numeric = p.type !== 'bool' && p.type !== 'choice';
         const numIn = (k: 'min' | 'max' | 'step' | 'default', label: string) => h('label', { class: 'ff' }, h('span', { class: 'fl' }, label),
           h('input', { type: 'number', inputmode: 'decimal', value: String(p[k] ?? ''), onchange: (e: Event) => set(i, (x) => { (x as any)[k] = Number((e.target as HTMLInputElement).value); }) }));
         return h('div', { class: 'pdef' },
           h('div', { class: 'grid2' },
-            h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Nombre visible'), h('input', { value: p.label, onchange: (e: Event) => set(i, (x) => { x.label = (e.target as HTMLInputElement).value; }) })),
-            h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Clave (fórmulas)'), h('input', { value: p.key, class: 'mono', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', onchange: (e: Event) => renameKey(i, (e.target as HTMLInputElement).value) }))),
+            h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Nombre'), h('input', { value: p.label, onchange: (e: Event) => {
+              const label = (e.target as HTMLInputElement).value;
+              set(i, (x) => { x.label = label; });
+              // un parámetro recién creado ("param3") toma su nombre corto del nombre visible
+              if (/^param\d+_*$/.test(p.key)) renameKey(i, label);
+            } })),
+            h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Nombre corto (fórmulas)'), h('input', { value: p.key, class: 'mono', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false', onchange: (e: Event) => renameKey(i, (e.target as HTMLInputElement).value) }))),
           h('div', { class: 'grid3' },
             h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Tipo'), h('select', { onchange: (e: Event) => set(i, (x) => {
               const t = (e.target as HTMLSelectElement).value as ParamDef['type'];

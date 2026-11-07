@@ -404,3 +404,40 @@ describe('calados sin deformar', () => {
     }
   });
 });
+
+import { advancedRepeat, fieldValue, linkedParam, parseRepeat, parseWhen, setRepeat } from '../src/core/simple';
+
+describe('edición simple de piezas', () => {
+  const design = STARTERS[0].design();
+  const params = freeParams(design);
+  const values = Object.fromEntries(params.map((d) => [d.key, d.default]));
+  const bar = design.components.find((c) => c.id === 'barrote')!;
+  it('reconoce la repetición de los barrotes y su paso ligado a un parámetro', () => {
+    const r = parseRepeat(bar);
+    expect(r.axis).toBe('x');
+    expect(r.step).toBe('paso');
+    expect(linkedParam(r.step, params)!.label).toBe('Paso entre barrotes');
+    expect(fieldValue(bar, 'count', values)).toBe(11);
+    expect(advancedRepeat(bar)).toBe(false);
+  });
+  it('cambiar la dirección mueve el término de repetición y quitarla lo elimina', () => {
+    const c = setRepeat({ ...bar, x: '30', count: '1' }, '5', 'z', '200');
+    expect(c.z).toBe('alto_cama - 20 + i*200');
+    expect(c.x).toBe('30');
+    const back = setRepeat(c, '1', null, '');
+    expect(back.z).toBe('alto_cama - 20');
+    expect(back.count).toBe('1');
+    const fromZero = setRepeat({ ...bar, x: '0', count: '1' }, '3', 'x', 'ancho - t');
+    expect(fromZero.x).toBe('i*(ancho - t)');
+    expect(parseRepeat(fromZero)).toEqual({ axis: 'x', base: '0', step: '(ancho - t)' });
+  });
+  it('detecta repeticiones que el modo simple no puede mostrar (repisas en grilla)', () => {
+    const shelf = STARTERS.find((s) => s.id === 'estanteria')!.design().components.find((c) => c.id === 'repisa')!;
+    expect(advancedRepeat(shelf)).toBe(true);
+  });
+  it('lee la condición "Aparece"', () => {
+    expect(parseWhen(bar, params)).toEqual({ kind: 'param', key: 'baranda' });
+    expect(parseWhen({ ...bar, when: '' }, params)).toEqual({ kind: 'always' });
+    expect(parseWhen({ ...bar, when: 'zocalo > 0' }, params)).toBeNull();
+  });
+});

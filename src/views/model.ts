@@ -39,10 +39,11 @@ export function modelView(root: HTMLElement) {
     store.update((p) => { p.free = s0.free; p.values = s0.values; }, 'free');
     afterEdit();
   }
-  function remember() { undo.push(snap()); if (undo.length > 60) undo.shift(); redo.length = 0; }
+  function remember() { undo.push(snap()); if (undo.length > 60) undo.shift(); redo.length = 0; undoBtn.disabled = false; redoBtn.disabled = true; }
   function afterEdit() {
     refresh();
-    if (!piecesEl.hidden) { pieces = piecesEditor(onFreeChange, onOpen, direct?.part?.source?.comp ?? null); piecesEl.replaceChildren(pieces); }
+    if (!piecesEl.hidden) { pieces = piecesEditor(onFreeChange, onOpen, direct?.part?.source?.comp ?? null, remember); piecesEl.replaceChildren(pieces); }
+    if (!defsEl.hidden) defsEl.replaceChildren(paramDefsEditor(onFreeChange, remember));
     undoBtn.disabled = !undo.length; redoBtn.disabled = !redo.length;
   }
 
@@ -157,8 +158,8 @@ export function modelView(root: HTMLElement) {
     for (const [k, el] of Object.entries(panes)) el.hidden = k !== m;
     if (m === 'rules') renderRules();
     else if (m === 'params') renderParams();
-    else if (m === 'pieces') { pieces = piecesEditor(() => { onFreeChange(); }, onOpen, direct?.part?.source?.comp ?? null); piecesEl.replaceChildren(pieces); }
-    else defsEl.replaceChildren(paramDefsEditor(onFreeChange));
+    else if (m === 'pieces') { pieces = piecesEditor(() => { onFreeChange(); }, onOpen, direct?.part?.source?.comp ?? null, remember); piecesEl.replaceChildren(pieces); }
+    else defsEl.replaceChildren(paramDefsEditor(onFreeChange, remember));
   }
 
   const explode = h('input', { type: 'range', min: '0', max: '1', step: '0.01', value: '0' });

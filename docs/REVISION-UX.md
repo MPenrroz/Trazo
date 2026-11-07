@@ -48,6 +48,16 @@ Esfuerzo: S (< 1 h) · M (medio día) · L (varios días).
 - 3D pequeño: encuadre exacto por las esquinas de la caja y re-encuadre al girar el iPad si no se movió la cámara.
 - Íconos de deshacer/rehacer reemplazados por íconos dibujados.
 
+**M2 · Edición de piezas sin fórmulas (7 nov):**
+- Medidas y posición como números; etiqueta "↔ parámetro" cuando la medida está ligada (cambiar el número cambia el parámetro) y "calculada" cuando viene de una fórmula. Respeta los rangos.
+- Orientación con íconos: de frente, de lado, acostada.
+- Espesor como lista: el del tablero o uno de los espesores disponibles.
+- Repetición como formulario: repetir N veces, cada X mm, en dirección largo/fondo/alto (la cantidad puede ser automática).
+- "Aparece": siempre, o solo si un parámetro Sí/No está activo.
+- Fórmulas dentro de "Ver fórmulas (avanzado)" en cada ficha; ayuda de fórmulas plegada.
+- Los cambios hechos en las fichas y en Parámetros entran al deshacer del visor.
+- Parámetros nuevos toman su nombre corto del nombre visible.
+
 ## Flujo general
 
 | # | Prio | Problema | Propuesta | Esf. |

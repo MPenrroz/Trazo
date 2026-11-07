@@ -366,3 +366,17 @@ a.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(
 /* íconos del visor */
 .viewer-tools .icon-btn { padding: 0; display: grid; place-items: center; }
 .viewer-tools .icon-btn svg { width: 22px; height: 22px; }
+
+/* Ficha simple de pieza */
+.orient { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.orient-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; height: auto; min-height: 64px; padding: 6px 4px; background: #fff; color: var(--ink); border: 1.5px solid var(--line); font-weight: 600; font-size: 13px; }
+.orient-btn svg { width: 30px; height: 30px; fill: #e2c89a; stroke: #7a4b16; stroke-width: 1.5; }
+.orient-btn.on { border-color: var(--accent); background: #fff7f0; box-shadow: 0 0 0 2px rgba(234,88,12,.12); }
+.ff.num input { text-align: right; font-variant-numeric: tabular-nums; }
+.link-chip { display: inline-block; margin-top: 2px; font-size: 11.5px; line-height: 1.3; font-weight: 600; color: #1d4ed8; background: #eaf1fd; border-radius: 6px; padding: 2px 6px; white-space: normal; max-width: 100%; }
+.link-chip.calc { color: var(--muted); background: #f1efea; }
+.muted.small { font-size: 12.5px; margin: -2px 0 2px; }
+.rep { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 10px; }
+.piece details.adv > summary, .free details.vars > summary { cursor: pointer; color: var(--muted); font-weight: 600; font-size: 14px; min-height: var(--tap); display: flex; align-items: center; }
+.piece details.adv[open] { border-top: 1px solid var(--line); padding-top: 4px; }
+.piece details.adv { display: flex; flex-direction: column; gap: 8px; }
