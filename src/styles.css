@@ -402,3 +402,14 @@ a.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(
 .ai-issues { font-size: 13px; color: var(--muted); }
 .ai-issues summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; }
 @media (max-width: 700px) { .ai-cols { grid-template-columns: 1fr; } }
+
+/* Dibujar en la pieza (modo enfocado), referencias y asistente */
+.sk-focus { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 8px 14px; background: #eef4fd; border-bottom: 1px solid #d5e3f7; }
+.sk-focus-info { display: flex; flex-direction: column; margin-right: auto; min-width: 220px; }
+.sk-focus .seg { margin: 0; }
+.seg-btn { flex: 1; background: transparent; color: var(--muted); border: 0; min-height: var(--tap); white-space: nowrap; }
+.seg-btn.on { background: #fff; color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.add-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.add-piece.ref { color: var(--muted); }
+.ai-existing summary { cursor: pointer; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; }
+.ai-existing .grid3 input { min-height: var(--tap); }

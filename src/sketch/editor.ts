@@ -1,7 +1,14 @@
+import { sampleLoop } from '../core/curve';
 import { d2, round, uid } from '../core/geom';
 import type { SketchDoc, SketchEl, V2 } from '../core/types';
 import { distToEl, fitStroke, mergeCollinear, pointInPoly, snapPoints } from './fit';
 import { mirrorClose, mirrorEl, segmentAt, translateEl, vertexAt } from './ops';
+
+/** Curvas suaves con pocos puntos de paso muestran manillas para editarlas. */
+const SMOOTH_HANDLES = 60;
+/** Puntos a dibujar: la curva suave muestreada o la polilínea tal cual. */
+const trace = (e: { pts: V2[]; kind: string; closed?: boolean; smooth?: boolean }): V2[] =>
+  e.kind === 'poly' && e.smooth && e.pts.length > 2 ? sampleLoop(e.pts, !!e.closed, 12, 3) : e.pts;
 
 export type Tool = 'smart' | 'edit' | 'free' | 'dim' | 'scale' | 'erase' | 'pick' | 'pan';
 
@@ -17,6 +24,10 @@ export interface EditorHooks {
   askLength?(title: string, current: number): Promise<number | null>;
   /** Tocar un lado para escribir su medida (lo resuelve la vista con ops.stretchSegment). */
   setSegment?(id: string, index: number): void;
+  /** Siluetas usadas por piezas: la goma no las borra (se borran desde Editar, con aviso). */
+  protectedIds?(): Set<string>;
+  /** Mensajes breves al usuario. */
+  notify?(msg: string): void;
 }
 
 type EditDrag = { mode: 'vertex' | 'move' | 'radius' | 'axis'; id: string; index: number; start: V2; before: SketchEl[]; axis0: number; moved: boolean; hitSeg: number };
@@ -34,6 +45,10 @@ export class SketchEditor {
   showLengths = true;
   /** Resaltar en naranjo la silueta usada como perfil (solo plantilla Costillas). */
   showProfile = true;
+  /** Silueta en edición ("Dibujar en la pieza"): se resalta. */
+  focusId: string | null = null;
+  /** Si está definido, la próxima forma cerrada reemplaza el contorno de esta silueta (conserva id y nombre). */
+  outlineTarget: string | null = null;
   private ctx = this.canvas.getContext('2d')!;
   private view = { x: 40, y: 40, s: 1 };
   private stroke: V2[] | null = null;
@@ -50,6 +65,7 @@ export class SketchEditor {
   /** Elemento seleccionado con la herramienta Editar. */
   selected: string | null = null;
   private drag: EditDrag | null = null;
+  private warnedProtected = false;
 
   constructor(private host: HTMLElement, private hooks: EditorHooks) {
     this.canvas.className = 'sketch-canvas';
@@ -91,6 +107,18 @@ export class SketchEditor {
     const w = this.toWorld(p);
     this.view.s = Math.min(20, Math.max(0.05, this.view.s * f));
     this.view.x = p[0] - w[0] * this.view.s; this.view.y = p[1] - w[1] * this.view.s;
+    this.render();
+  }
+
+  /** Encuadra un elemento (silueta en edición). */
+  fitTo(id: string) {
+    const e = this.hooks.doc().elements.find((x) => x.id === id);
+    if (!e) return this.fit();
+    const pts: V2[] = e.kind === 'circle' ? [[e.c[0] - e.r, e.c[1] - e.r], [e.c[0] + e.r, e.c[1] + e.r]] : e.kind === 'dim' ? [e.a, e.b] : e.pts;
+    const x0 = Math.min(...pts.map((p) => p[0])), x1 = Math.max(...pts.map((p) => p[0])), y0 = Math.min(...pts.map((p) => p[1])), y1 = Math.max(...pts.map((p) => p[1]));
+    const r = this.host.getBoundingClientRect();
+    const s = Math.min((r.width - 120) / (x1 - x0 || 1), (r.height - 160) / (y1 - y0 || 1), 8);
+    this.view = { s, x: r.width / 2 - ((x0 + x1) / 2) * s, y: r.height / 2 - ((y0 + y1) / 2) * s + 30 };
     this.render();
   }
 
@@ -223,6 +251,20 @@ export class SketchEditor {
         }
       }
       const fin = el;
+      // "Redibujar contorno": la forma cerrada reemplaza la silueta en edición (las piezas siguen ligadas)
+      const target = this.outlineTarget;
+      if (fin && target && (fin.kind === 'circle' || (fin.kind === 'poly' && fin.closed))) {
+        this.commit((d) => {
+          const i = d.elements.findIndex((e) => e.id === target);
+          const old = d.elements[i] as { name?: string } | undefined;
+          const repl = { ...fin, id: target, name: old?.name } as SketchEl;
+          if (i >= 0) d.elements[i] = repl; else d.elements.push(repl);
+        }, 'Contorno nuevo');
+        this.hooks.notify?.('Contorno reemplazado. La pieza ya usa la forma nueva.');
+        this.render();
+        return;
+      }
+      if (fin && target) this.hooks.notify?.('Para reemplazar el contorno, cierra el trazo (termina donde empezaste).');
       if (fin) this.commit((d) => {
         d.elements.push(fin);
         if (copy) d.elements.push(copy);
@@ -265,7 +307,7 @@ export class SketchEditor {
     const before = structuredClone(doc.elements);
     const base = { start: w, before, axis0: doc.symmetry?.x ?? 0, moved: false, hitSeg: -1 };
     const sel = doc.elements.find((e) => e.id === this.selected);
-    if (sel?.kind === 'poly' && !sel.smooth) {
+    if (sel?.kind === 'poly' && (!sel.smooth || sel.pts.length <= SMOOTH_HANDLES)) {
       const vi = vertexAt(sel.pts, w, tol);
       if (vi >= 0) { this.drag = { ...base, mode: 'vertex', id: sel.id, index: vi }; return; }
     }
@@ -359,6 +401,10 @@ export class SketchEditor {
     const doc = this.hooks.doc();
     const tol = 10 / this.view.s;
     const hit = doc.elements.find((e) => distToEl(w, e) < tol);
+    if (hit && this.hooks.protectedIds?.().has(hit.id)) {
+      if (!this.warnedProtected) { this.warnedProtected = true; this.hooks.notify?.('Esta silueta se usa en una pieza: la goma no la borra. Para cambiarla, redibuja su contorno o bórrala desde Editar.'); }
+      return;
+    }
     if (hit) { this.commit((d) => { d.elements = d.elements.filter((e) => e.id !== hit.id); if (d.profileId === hit.id) d.profileId = undefined; }, 'Borrar'); if (this.selected === hit.id) this.select(null); }
   }
   private pickAt(w: V2) {
@@ -389,6 +435,14 @@ export class SketchEditor {
       ctx.save(); ctx.strokeStyle = '#7c3aed'; ctx.lineWidth = 1.2 * px; ctx.setLineDash([8 * px, 6 * px]);
       ctx.beginPath(); ctx.moveTo(doc.symmetry.x, y0); ctx.lineTo(doc.symmetry.x, y1); ctx.stroke(); ctx.restore();
     }
+    const focus = this.focusId ? doc.elements.find((e) => e.id === this.focusId) : null;
+    if (focus && focus.kind !== 'dim' && focus.kind !== 'free') {
+      // silueta en edición: relleno azul suave
+      ctx.save(); ctx.beginPath();
+      if (focus.kind === 'circle') ctx.arc(focus.c[0], focus.c[1], focus.r, 0, Math.PI * 2);
+      else { trace(focus).forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); ctx.closePath(); }
+      ctx.fillStyle = 'rgba(37,99,235,0.08)'; ctx.fill(); ctx.restore();
+    }
     for (const e of doc.elements) this.drawEl(e, doc, px, this.showProfile && e.id === doc.profileId);
     const sel = doc.elements.find((e) => e.id === this.selected);
     if (sel && this.tool === 'edit') this.drawSelection(sel, px);
@@ -409,11 +463,11 @@ export class SketchEditor {
     ctx.beginPath();
     if (e.kind === 'circle') ctx.arc(e.c[0], e.c[1], e.r, 0, Math.PI * 2);
     else if (e.kind === 'dim') { ctx.moveTo(...e.a); ctx.lineTo(...e.b); }
-    else { e.pts.forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); if (e.kind === 'poly' && e.closed) ctx.closePath(); }
+    else { trace(e).forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); if (e.kind === 'poly' && e.closed) ctx.closePath(); }
     ctx.stroke();
     ctx.globalAlpha = 1;
     // manillas de vértices (tamaño constante en pantalla)
-    const handles: V2[] = e.kind === 'poly' && !e.smooth ? e.pts : e.kind === 'dim' ? [e.a, e.b] : e.kind === 'circle' ? [[e.c[0] + e.r, e.c[1]]] : [];
+    const handles: V2[] = e.kind === 'poly' && (!e.smooth || e.pts.length <= SMOOTH_HANDLES) ? e.pts : e.kind === 'dim' ? [e.a, e.b] : e.kind === 'circle' ? [[e.c[0] + e.r, e.c[1]]] : [];
     for (const p of handles) {
       ctx.beginPath(); ctx.arc(p[0], p[1], 7 * px, 0, Math.PI * 2);
       ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2 * px; ctx.strokeStyle = '#2563eb'; ctx.stroke();
@@ -464,13 +518,17 @@ export class SketchEditor {
     }
     ctx.beginPath();
     if (e.kind === 'circle') ctx.arc(e.c[0], e.c[1], e.r, 0, Math.PI * 2);
-    else { e.pts.forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); if (e.closed) ctx.closePath(); }
+    else { trace(e).forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); if (e.closed) ctx.closePath(); }
     if (isProfile) { ctx.fillStyle = 'rgba(234,88,12,0.12)'; ctx.fill(); }
     ctx.strokeStyle = isProfile ? '#ea580c' : '#111827'; ctx.lineWidth = (isProfile ? 2.4 : 1.8) * px;
     ctx.stroke();
     if (!this.showLengths) return;
     if (e.kind === 'circle') { this.label([e.c[0], e.c[1]], `Ø ${this.fmt(e.r * 2, doc)}`, px, '#6b7280'); return; }
-    if (e.smooth) return;
+    if (e.smooth) {
+      // puntos de paso de la curva (se arrastran en modo Editar)
+      for (const p of e.pts) { ctx.beginPath(); ctx.arc(p[0], p[1], 1.8 * px, 0, Math.PI * 2); ctx.fillStyle = '#6b7280'; ctx.fill(); }
+      return;
+    }
     const n = e.closed ? e.pts.length : e.pts.length - 1;
     for (let i = 0; i < n; i++) {
       const a = e.pts[i], b = e.pts[(i + 1) % e.pts.length];
@@ -488,7 +546,7 @@ export class SketchEditor {
       if (e.kind === 'circle') return `<circle cx="${e.c[0] * k}" cy="${e.c[1] * k}" r="${e.r * k}"/>`;
       if (e.kind === 'dim') return `<line class="dim" x1="${e.a[0] * k}" y1="${e.a[1] * k}" x2="${e.b[0] * k}" y2="${e.b[1] * k}"/>`;
       const tag = e.kind === 'poly' && e.closed ? 'polygon' : 'polyline';
-      return `<${tag} points="${e.pts.map(([x, y]) => `${(x * k).toFixed(2)},${(y * k).toFixed(2)}`).join(' ')}"/>`;
+      return `<${tag} points="${trace(e).map(([x, y]) => `${(x * k).toFixed(2)},${(y * k).toFixed(2)}`).join(' ')}"/>`;
     }).join('\n');
     return `<svg xmlns="http://www.w3.org/2000/svg"${doc.calibrated ? ' data-units="mm"' : ''}><style>*{fill:none;stroke:#111;stroke-width:${doc.calibrated ? 0.5 : 1.5}}.dim{stroke:#2563eb}</style>\n${els}\n</svg>`;
   }

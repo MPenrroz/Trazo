@@ -487,3 +487,62 @@ describe('propuesta desde imagen', () => {
     expect(t).toContain('18 mm');
   });
 });
+
+import { addReference, newComponent } from '../src/core/free';
+import { parseMm } from '../src/ui';
+
+describe('volumen de referencia', () => {
+  it('agrega parámetros y una pieza que no se fabrica', () => {
+    const d = addReference({ params: [], components: [] }, 'Cama nido', 2000, 1060, 450);
+    expect(d.params.map((p) => p.key)).toEqual(['ref_largo', 'ref_ancho', 'ref_alto']);
+    const parts = buildFree(Object.fromEntries(freeParams(d).map((p) => [p.key, p.default])), d, {}, 'mdf');
+    expect(parts[0].process).toBe('ref');
+    expect(bounds3(parts).size.map(Math.round)).toEqual([2000, 1060, 450]);
+    const a = analyse(parts, DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(a.nest.placements).toHaveLength(0);
+    expect(addReference(d, 'Otra', 1, 1, 1).params.map((p) => p.key)).toContain('ref_largo_');
+  });
+  it('lee medidas escritas por personas', () => {
+    expect(parseMm('106 cm')).toBe(1060);
+    expect(parseMm('2 m')).toBe(2000);
+    expect(parseMm('1,5m')).toBe(1500);
+    expect(parseMm('450')).toBe(450);
+    expect(parseMm('abc')).toBeNaN();
+  });
+});
+
+import { arcPoints, sampleLoop, toArcs, toBeziers } from '../src/core/curve';
+
+describe('curvas suaves (NURBS / arcos)', () => {
+  const circle = Array.from({ length: 16 }, (_, k) => [100 * Math.cos((k / 16) * 2 * Math.PI), 100 * Math.sin((k / 16) * 2 * Math.PI)] as V2);
+  it('pasa por los puntos y mantiene rectos los rectángulos', () => {
+    const rect: V2[] = [[0, 0], [500, 0], [500, 300], [0, 300]];
+    expect(sampleLoop(rect)).toEqual(rect);
+    const bz = toBeziers(circle);
+    expect(bz).toHaveLength(16);
+    bz.forEach((b, k) => expect(b[0]).toEqual(circle[k]));
+  });
+  it('una spline por 16 puntos de un círculo queda a menos de 0,2 mm del círculo', () => {
+    const err = Math.max(...sampleLoop(circle).map(([x, y]) => Math.abs(Math.hypot(x, y) - 100)));
+    expect(err).toBeLessThan(0.2);
+  });
+  it('los arcos para CNC siguen la curva dentro de la tolerancia', () => {
+    const vs = toArcs(circle, true, 0.05);
+    expect(vs.some((v) => Math.abs(v.bulge) > 0)).toBe(true);
+    const dense = sampleLoop(circle, true, 64, 0.5);
+    const dist = (p: V2) => Math.min(...dense.map((q) => Math.hypot(p[0] - q[0], p[1] - q[1])));
+    vs.forEach((v, k) => {
+      for (const p of arcPoints(v.p, vs[(k + 1) % vs.length].p, v.bulge, 4)) expect(dist(p)).toBeLessThan(0.15);
+    });
+    expect(vs.length).toBeLessThan(80);
+  });
+  it('una pieza con silueta suave guarda la curva exacta y el DXF lleva arcos', () => {
+    const design = { params: [], components: [newComponent({ shape: 's1', w: '1000', h: '800' })] };
+    const outline = circle.map(([x, y]) => [(x + 100) / 200, (y + 100) / 200] as V2);
+    const parts = buildFree({ t: 18 }, design, { s1: { outline, holes: [], label: 'S', size: [1000, 800], smooth: true } }, 'mdf');
+    expect(parts[0].curves?.outline).toHaveLength(16);
+    expect(parts[0].profile.length).toBeGreaterThan(16);
+    const a = analyse(parts, DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(nestingDxf(a.nest)).toMatch(/\n42\n-?0\.\d+/);
+  });
+});

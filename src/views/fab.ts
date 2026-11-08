@@ -3,7 +3,8 @@ import { store } from '../core/store';
 import { nestingDrawing } from '../drawings';
 import { download, slug } from '../export/download';
 import { nestingDxf } from '../export/dxf';
-import { card, checkList, h, money } from '../ui';
+import { card, checkList, confirmDialog, h, money, toast } from '../ui';
+import { uid } from '../core/geom';
 
 /** Paso 5 · Fabricación: restricciones del método, anidado, despiece y costos. */
 export function fabView(root: HTMLElement) {
@@ -32,7 +33,19 @@ export function fabView(root: HTMLElement) {
           numField('Setup por tablero', m.setupPerSheet, (n) => { m.setupPerSheet = n; }))),
       card('Material',
         h('select', { onchange: (e: Event) => { store.update((p) => { p.materialId = (e.target as HTMLSelectElement).value; }, 'fab'); render(); } },
-          ...store.project.fab.materials.filter((x) => x.id !== 'tapiz').map((x) => h('option', { value: x.id, selected: x.id === mat.id }, x.name))),
+          ...store.project.fab.materials.filter((x) => x.id !== 'tapiz').map((x) => h('option', { value: x.id, selected: x.id === mat.id }, x.custom ? `${x.name} (propio)` : x.name))),
+        h('div', { class: 'row wrap' },
+          h('button', { class: 'ghost sm', onclick: () => {
+            // tablero propio (proveedor local, medidas especiales): parte como copia editable del actual
+            const id = uid('mat-');
+            store.update((p) => { p.fab.materials.push({ ...structuredClone(mat), id, name: 'Tablero propio', custom: true }); p.materialId = id; }, 'fab');
+            render(); toast('Tablero nuevo creado: ponle nombre, medidas de la plancha, espesores y precio.');
+          } }, '+ Nuevo tablero'),
+          mat.custom ? h('button', { class: 'ghost sm danger', onclick: async () => {
+            if (!(await confirmDialog(`¿Eliminar el tablero "${mat.name}"?`))) return;
+            store.update((p) => { p.fab.materials = p.fab.materials.filter((x) => x.id !== mat.id); p.materialId = p.fab.materials[0].id; }, 'fab'); render();
+          } }, 'Eliminar tablero') : null),
+        h('label', { class: 'field' }, 'Nombre', h('input', { value: mat.name, onchange: (e: Event) => { store.update(() => { mat.name = (e.target as HTMLInputElement).value.trim() || mat.name; }, 'fab'); render(); } })),
         h('div', { class: 'grid2' },
           numField('Tablero X (mm)', mat.sheet[0], (n) => { mat.sheet[0] = n; }),
           numField('Tablero Y (mm)', mat.sheet[1], (n) => { mat.sheet[1] = n; }),

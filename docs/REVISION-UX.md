@@ -157,3 +157,12 @@ Arreglos rápidos (S, prioridad A/B) que se pueden hacer en una sola tanda:
 - B2, B5;
 - M1, M5, M6;
 - T1, E1.
+
+## Prueba en iPad · cama niño (feedback 4)
+
+| # | Problema reportado | Solución | Estado |
+|---|---|---|---|
+| K1 | Las curvas salen como tramos rectos; para CNC se necesitan curvas reales (NURBS). | Las siluetas suaves (trazos curvos, círculos y siluetas de la IA) son ahora una **curva que pasa por sus puntos** (spline con esquinas automáticas sobre 50°). Se exporta exacta: **NURBS de grado 3** en el .3dm (sólidos y perfiles de corte) y **polilíneas con arcos** (G2/G3, tolerancia 0,05 mm) en el DXF de corte. Los puntos de la curva se arrastran en modo Editar. Espejo en `trazo_rhino.py` (`to_beziers`). | Hecho |
+| K2 | Faltó el volumen "objetivo" de la cama existente (nido plaza y media). | **+ Volumen de referencia** (Modelo → Piezas) con largo/ancho/alto en mm, cm o m: crea parámetros `ref_largo`, `ref_ancho`, `ref_alto` para usar en las fórmulas. "Interpretar imagen" pregunta "¿Es para un mueble existente?" y adapta la propuesta a esas medidas. | Hecho |
+| K3 | Tablero de proveedor local con medidas especiales. | Fabricación → Material → **+ Nuevo tablero**: nombre, plancha (p. ej. 1000 × 3000), espesores (22) y precio. El espesor de las piezas ofrece solo los del tablero elegido. | Hecho |
+| K4 | "Dibujar en la pieza" es confuso; se borró el perfil del respaldo. | Modo enfocado: barra "Dibujando en «pieza»" con **Redibujar contorno** (un trazo cerrado reemplaza la forma conservando la pieza) o **Agregar calados**, y **Listo → ver en 3D**. El borrador ya no elimina siluetas en uso por piezas (avisa). | Hecho |

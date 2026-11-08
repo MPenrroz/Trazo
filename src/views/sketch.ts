@@ -7,7 +7,7 @@ import { SketchEditor, type Tool } from '../sketch/editor';
 import { profileFromSketch } from '../sketch/fit';
 import { elPoints, mirrorEl, stretchSegment, translateEl } from '../sketch/ops';
 import { nextStep } from '../steps';
-import { ask, confirmDialog, h, pickFiles, readImage, toast } from '../ui';
+import { ask, confirmDialog, formDialog, h, parseMm, pickFiles, readImage, toast } from '../ui';
 
 interface ToolDef { id: Tool; label: string; icon: string; tip: string; only?: string }
 const TOOLS: ToolDef[] = [
@@ -24,7 +24,7 @@ const TOOLS: ToolDef[] = [
 const isSilhouette = (e: SketchEl) => e.kind === 'circle' || (e.kind === 'poly' && e.closed);
 
 /** Paso 2 · Boceto (opcional): siluetas y calados dibujados a mano, a escala. */
-export function sketchView(root: HTMLElement) {
+export function sketchView(root: HTMLElement, q: URLSearchParams = new URLSearchParams()) {
   const tpl = store.project.template;
   const tools = TOOLS.filter((t) => !t.only || t.only === tpl);
   const stage = h('div', { class: 'stage' });
@@ -56,6 +56,8 @@ export function sketchView(root: HTMLElement) {
       if (!store.project.sketch.calibrated) toast('Consejo: indica una medida conocida con 📏 Escala o con una Cota para que todo quede en mm.');
     },
     selection: () => renderSel(),
+    protectedIds: () => new Set((store.project.free?.components ?? []).map((c) => c.shape).filter((x) => x !== 'rect')),
+    notify: (m) => toast(m),
     setSegment: async (id, i) => {
       const sk = store.project.sketch;
       const e = sk.elements.find((x) => x.id === id);
@@ -72,6 +74,28 @@ export function sketchView(root: HTMLElement) {
   });
 
   editor.showProfile = tpl === 'costillas';
+
+  // ---------------------------------------------------------------- "Dibujar en la pieza": modo enfocado
+  const focusComp = q.get('pieza') ? store.project.free?.components.find((c) => c.id === q.get('pieza')) : undefined;
+  const focusId = focusComp && focusComp.shape !== 'rect' ? focusComp.shape : null;
+  let focusBar: HTMLElement | null = null;
+  if (focusComp && focusId) {
+    editor.focusId = focusId;
+    editor.outlineTarget = focusId; // por defecto: redibujar contorno
+    const modeBtns = ([['outline', 'Redibujar contorno', 'Dibuja la forma completa cerrada: reemplaza el contorno de la pieza.'], ['holes', 'Agregar calados', 'Cada forma cerrada que dibujes DENTRO de la silueta se corta como calado.']] as const)
+      .map(([m, label, tip]) => h('button', { class: `seg-btn ${m === 'outline' ? 'on' : ''}`, 'data-mode': m, title: tip, onclick: () => setMode(m) }, label));
+    const tipEl = h('span', { class: 'muted small' }, modeBtns[0].title);
+    const setMode = (m: 'outline' | 'holes') => {
+      editor.outlineTarget = m === 'outline' ? focusId : null;
+      modeBtns.forEach((b) => b.classList.toggle('on', b.dataset.mode === m));
+      tipEl.textContent = (m === 'outline' ? modeBtns[0] : modeBtns[1]).title;
+      setTool(tools.find((t) => t.id === 'smart')!);
+    };
+    focusBar = h('div', { class: 'sk-focus' },
+      h('div', { class: 'sk-focus-info' }, h('b', null, `Dibujando en «${focusComp.name}»`), tipEl),
+      h('div', { class: 'seg' }, ...modeBtns),
+      h('button', { onclick: () => { try { sessionStorage.setItem('trazo:select', focusComp.id); } catch { /* */ } location.hash = '#/modelo'; } }, 'Listo → ver en 3D'));
+  }
 
   // ---------------------------------------------------------------- barra de la forma seleccionada
   function usedBy(id: string) {
@@ -176,14 +200,16 @@ export function sketchView(root: HTMLElement) {
       h('button', { class: 'tool', onclick: () => editor.redo(), title: 'Rehacer' }, h('span', { class: 'ico' }, '↷'), h('span', { class: 'tl' }, 'Rehacer')),
       h('button', { class: 'tool', onclick: () => editor.fit(), title: 'Encuadrar' }, h('span', { class: 'ico' }, '⤢'), h('span', { class: 'tl' }, 'Encuadrar')),
       nextStep('boceto', store.project.sketch.elements.length && !store.project.sketch.calibrated ? 'Aún no calibras la escala' : undefined, true)),
-    notice,
+    notice, focusBar,
     h('div', { class: 'sketch-body' }, h('div', { class: 'stage-wrap' }, stage, selBar),
       h('aside', { class: 'side' },
         h('h4', null, 'Siluetas'),
         h('p', { class: 'muted' }, howTo),
         h('button', { class: 'ghost', onclick: async () => {
-          const w = await askMm('Ancho del rectángulo (mm):', 600); if (!w) return;
-          const hh = await askMm('Alto del rectángulo (mm):', 400); if (!hh) return;
+          const v = await formDialog('Rectángulo con medidas (acepta mm, cm o m)', [{ key: 'w', label: 'Ancho', value: '600', type: 'number' }, { key: 'h', label: 'Alto', value: '400', type: 'number' }], 'Crear');
+          if (!v) return;
+          const w = parseMm(v.w), hh = parseMm(v.h);
+          if (!(w > 0) || !(hh > 0)) { toast('Revisa las medidas: por ejemplo 60 cm o 600.', 'err'); return; }
           if (!store.project.sketch.calibrated) toast('Sin escala calibrada: se asume 1 px = 1 mm.');
           setTool(tools.find((t) => t.id === 'edit')!);
           editor.addRect(w, hh);
@@ -205,6 +231,6 @@ export function sketchView(root: HTMLElement) {
         h('button', { class: 'ghost danger', onclick: async () => { if (await confirmDialog('¿Borrar todos los trazos del lienzo? Podrás deshacerlo.', 'Borrar')) editor.clear(); } }, 'Limpiar lienzo'))),
     status));
   (window as unknown as { __trazoSketch?: SketchEditor }).__trazoSketch = editor; // ayuda para pruebas automáticas
-  requestAnimationFrame(() => editor.fit());
+  requestAnimationFrame(() => (focusId ? editor.fitTo(focusId) : editor.fit()));
   return () => { editor.destroy(); document.removeEventListener('paste', onPaste); };
 }

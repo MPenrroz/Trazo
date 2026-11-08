@@ -1,3 +1,4 @@
+import { toArcs, type BulgeVertex } from '../core/curve';
 import { placedProfile, type NestResult } from '../core/nesting';
 import type { SketchDoc, V2 } from '../core/types';
 
@@ -11,6 +12,14 @@ class Dxf {
     for (const [x, y] of pts) this.ents.push(`0\nVERTEX\n8\n${layer}\n10\n${x.toFixed(3)}\n20\n${y.toFixed(3)}\n30\n0`);
     this.ents.push(`0\nSEQEND\n8\n${layer}`);
   }
+  /** Polilínea con arcos (bulge, código 42): curvas exactas G2/G3 para el CAM. */
+  arcs(vs: BulgeVertex[], layer: string, closed = true) {
+    this.ents.push(`0\nPOLYLINE\n8\n${layer}\n66\n1\n70\n${closed ? 1 : 0}\n10\n0\n20\n0\n30\n0`);
+    for (const { p: [x, y], bulge } of vs) this.ents.push(`0\nVERTEX\n8\n${layer}\n10\n${x.toFixed(3)}\n20\n${y.toFixed(3)}\n30\n0${Math.abs(bulge) > 1e-9 ? `\n42\n${bulge.toFixed(6)}` : ''}`);
+    this.ents.push(`0\nSEQEND\n8\n${layer}`);
+  }
+  /** Contorno: curva suave → arcos; si no, polilínea. */
+  loop(pts: V2[], ctrl: V2[] | null | undefined, layer: string) { if (ctrl) this.arcs(toArcs(ctrl), layer); else this.poly(pts, layer); }
   circle(c: V2, r: number, layer: string) { this.ents.push(`0\nCIRCLE\n8\n${layer}\n10\n${c[0].toFixed(3)}\n20\n${c[1].toFixed(3)}\n30\n0\n40\n${r.toFixed(3)}`); }
   text(p: V2, h: number, s: string, layer: string) { this.ents.push(`0\nTEXT\n8\n${layer}\n10\n${p[0].toFixed(3)}\n20\n${p[1].toFixed(3)}\n30\n0\n40\n${h}\n1\n${s.replace(/\n/g, ' ')}`); }
   toString() {
@@ -32,8 +41,10 @@ export function nestingDxf(nr: NestResult): string {
     const ox = s * (SW + 200);
     d.poly([[ox, 0], [ox + SW, 0], [ox + SW, SH], [ox, SH]], 'TABLERO');
     for (const pl of nr.placements.filter((p) => p.sheet === s)) {
-      d.poly(placedProfile(pl, pl.part.profile).map(([x, y]) => [x + ox, y]), 'CORTE_EXTERIOR');
-      for (const h of pl.part.holes ?? []) d.poly(placedProfile(pl, h).map(([x, y]) => [x + ox, y]), 'CORTE_INTERIOR');
+      const at = (pts: V2[]) => placedProfile(pl, pts).map(([x, y]) => [x + ox, y] as V2);
+      const cv = pl.part.curves;
+      d.loop(at(pl.part.profile), cv?.outline && at(cv.outline), 'CORTE_EXTERIOR');
+      (pl.part.holes ?? []).forEach((h, j) => { const c = cv?.holes?.[j]; d.loop(at(h), c && at(c), 'CORTE_INTERIOR'); });
       // cajeados: con la pieza espejada (flipped) los de la cara 'base' quedan boca arriba
       for (const k of pl.part.pockets ?? []) {
         const up = pl.flipped ? k.face === 'base' : k.face === 'top';

@@ -1,11 +1,11 @@
 import { applyDrag, type Field } from '../core/direct';
 import { evalExpr } from '../core/expr';
 import { advancedRepeat, fieldValue, isNumber, linkedParam, parseRepeat, parseWhen, setRepeat, type Axis } from '../core/simple';
-import { STARTERS, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign } from '../core/free';
+import { STARTERS, addReference, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
 import type { ParamDef, Project, V2 } from '../core/types';
-import { confirmDialog, h, toast } from '../ui';
+import { confirmDialog, formDialog, h, parseMm, toast } from '../ui';
 
 const KIND: Record<Component['kind'], string> = { tablero: 'Tablero CNC', tapiz: 'Tapiz (espuma + tela)', ref: 'Referencia (no se fabrica)' };
 const FIELDS: { k: 'w' | 'h' | 't' | 'x' | 'y' | 'z'; label: string }[] = [
@@ -233,6 +233,26 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     return det;
   }
 
+  /** Mueble u objeto existente (p. ej. la cama a la que se adapta el diseño): se ve en 3D, no se fabrica. */
+  async function addRefVolume() {
+    const v = await formDialog('Volumen de referencia: el mueble u objeto existente al que se adapta tu diseño. Se ve en 3D pero no se fabrica. Acepta mm, cm o m.', [
+      { key: 'name', label: 'Nombre', value: 'Cama existente' },
+      { key: 'l', label: 'Largo (X)', placeholder: 'Ej: 200 cm', type: 'number' },
+      { key: 'a', label: 'Ancho (Y)', placeholder: 'Ej: 106 cm', type: 'number' },
+      { key: 'h', label: 'Alto (Z)', placeholder: 'Ej: 45 cm', type: 'number' },
+    ], 'Agregar');
+    if (!v) return;
+    const [l, a, hh] = [parseMm(v.l), parseMm(v.a), parseMm(v.h)];
+    if (![l, a, hh].every((n) => Number.isFinite(n) && n > 0)) { toast('Revisa las medidas: usa números, por ejemplo 106 cm o 1060.', 'err'); return; }
+    remember?.();
+    store.update((p) => {
+      p.free = addReference(design(p), v.name || 'Referencia', l, a, hh);
+      for (const d of freeParams(p.free)) if (!(d.key in p.values)) p.values[d.key] = d.default;
+    }, 'free');
+    changed(); render();
+    toast(`Volumen "${v.name}" agregado (${Math.round(l)} × ${Math.round(a)} × ${Math.round(hh)} mm). Sus medidas quedan como parámetros.`);
+  }
+
   function addPiece() {
     const d = design(store.project);
     const c = newComponent({ name: `Pieza ${d.components.length + 1}` });
@@ -257,11 +277,12 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         h('b', null, 'Tu producto aún no tiene piezas'),
         h('p', null, 'Cada pieza es un tablero: rectangular o con la silueta que dibujes en el Boceto. Después la estiras y mueves tocándola en el 3D.'),
         h('button', { onclick: () => addPiece() }, '+ Agregar la primera pieza'),
+        h('button', { class: 'ghost', onclick: () => addRefVolume() }, '+ Volumen de un mueble existente'),
         aiBtn,
         h('p', { class: 'muted' }, 'O parte de un ejemplo (todo es editable):'),
         h('div', { class: 'row wrap' }, ...STARTERS.map((st) => h('button', { class: 'ghost sm', title: st.description, onclick: async () => { if (await applyStarter(st)) { changed(); render(); } } }, st.name)))),
       ...d.components.map((c, i) => card(c, i, d.components.length)),
-      d.components.length ? h('button', { class: 'add-piece', onclick: () => addPiece() }, '+ Agregar pieza') : null,
+      d.components.length ? h('div', { class: 'add-row' }, h('button', { class: 'add-piece', onclick: () => addPiece() }, '+ Agregar pieza'), h('button', { class: 'add-piece ref', onclick: () => addRefVolume() }, '+ Volumen de referencia')) : null,
       h('p', { class: 'muted' }, `Siluetas en el boceto: ${nShapes}. `, h('a', { class: 'link', href: '#/boceto' }, 'Dibujar o editar siluetas →')),
       h('details', { class: 'vars' }, h('summary', null, 'Ayuda de fórmulas (avanzado)'), h('div', { class: 'chips' }, ...vars.map((v) => h('code', null, v))),
         h('p', { class: 'muted' }, 'Operaciones: + − * / ( ), min(), max(), round(), floor(), ceil(), comparaciones y "condición ? a : b". La posición es la esquina mínima de la pieza; `i` es el número de copia (0, 1, 2…) y `n` la cantidad.'))].filter((x) => !!x) as HTMLElement[]);
@@ -367,6 +388,6 @@ export function drawOnPiece(compId: string) {
       comp.holes = true;
     }, 'free');
   }
-  toast(`Dibuja dentro de la silueta de «${c.name}»: cada forma cerrada será un calado. También puedes redibujar el contorno.`);
-  location.hash = '#/boceto';
+  // el Boceto se abre enfocado en la silueta de esta pieza (redibujar contorno o agregar calados)
+  location.hash = `#/boceto?pieza=${encodeURIComponent(compId)}`;
 }

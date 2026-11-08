@@ -28,6 +28,11 @@ export interface Part {
   pockets?: Pocket[];
   /** Pieza del diseño libre que la generó (para edición directa en el 3D). */
   source?: { comp: string; i: number };
+  /**
+   * Curvas suaves: puntos por los que pasa la curva (mm, mismas coordenadas que profile/holes).
+   * profile/holes son su versión muestreada; las exportaciones CNC/Rhino usan estas curvas exactas.
+   */
+  curves?: { outline?: V2[]; holes?: (V2[] | null)[] };
 }
 
 /**
@@ -74,6 +79,8 @@ export interface Material {
   density: number;
   /** Relación luz/espesor máxima recomendada para repisas sin apoyo. */
   maxSpanRatio: number;
+  /** Tablero creado por el usuario (p. ej. de un proveedor local). */
+  custom?: boolean;
 }
 
 export interface FabMethod {

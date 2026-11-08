@@ -111,3 +111,28 @@ function dialog(title: string, opts: { input?: string; inputmode?: string; ok: s
 }
 export const ask = (title: string, def = '', inputmode = 'decimal') => dialog(title, { input: def, inputmode, ok: 'Aceptar' });
 export const confirmDialog = async (title: string, ok = 'Eliminar') => (await dialog(title, { ok, danger: true })) !== null;
+
+/** Formulario breve en un diálogo propio. Devuelve los valores o null si se cancela. */
+export function formDialog(title: string, fields: { key: string; label: string; value?: string; type?: 'text' | 'number'; placeholder?: string }[], ok = 'Aceptar'): Promise<Record<string, string> | null> {
+  return new Promise((res) => {
+    const inputs = fields.map((f) => h('input', { id: `fd-${f.key}`, value: f.value ?? '', placeholder: f.placeholder ?? '', type: f.type === 'number' ? 'text' : 'text', inputmode: f.type === 'number' ? 'decimal' : 'text' }));
+    const close = (v: Record<string, string> | null) => { wrap.remove(); res(v); };
+    const collect = () => Object.fromEntries(fields.map((f, i) => [f.key, inputs[i].value.trim()]));
+    const wrap = h('div', { class: 'dlg-back', onclick: (e: Event) => { if (e.target === wrap) close(null); } },
+      h('form', { class: 'dlg', onsubmit: (e: Event) => { e.preventDefault(); close(collect()); } },
+        h('p', null, title),
+        ...fields.map((f, i) => h('label', { class: 'field' }, f.label, inputs[i])),
+        h('div', { class: 'row end' }, h('button', { type: 'button', class: 'ghost', onclick: () => close(null) }, 'Cancelar'), h('button', { type: 'submit' }, ok))));
+    document.body.appendChild(wrap);
+    inputs[0]?.focus();
+  });
+}
+
+/** Número escrito por una persona: acepta coma decimal y unidades (mm, cm, m). Devuelve mm o NaN. */
+export function parseMm(s: string): number {
+  const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*$/i.exec(s);
+  if (!m) return NaN;
+  const n = Number(m[1].replace(',', '.'));
+  const u = (m[2] ?? 'mm').toLowerCase();
+  return u === 'm' ? n * 1000 : u === 'cm' ? n * 10 : n;
+}

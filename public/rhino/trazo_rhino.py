@@ -319,6 +319,39 @@ def _keep_hole(hh, w, h, size):
     return [(cu * w + (u - cu) * size[0] * s, cv * h + (v - cv) * size[1] * s) for u, v in hh]
 
 
+def _corners(pts, closed=True, deg=50.0):
+    """Esquinas automáticas: el contorno gira más que `deg` grados (espejo de corners en curve.ts)."""
+    n = len(pts)
+    out = []
+    for i, p in enumerate(pts):
+        if not closed and (i == 0 or i == n - 1):
+            out.append(True); continue
+        a, c = pts[(i - 1) % n], pts[(i + 1) % n]
+        t1 = math.atan2(p[1] - a[1], p[0] - a[0])
+        t2 = math.atan2(c[1] - p[1], c[0] - p[0])
+        turn = abs(t2 - t1) * 180.0 / math.pi
+        if turn > 180:
+            turn = 360 - turn
+        out.append(turn > deg)
+    return out
+
+
+def to_beziers(pts, closed=True):
+    """Tramos Bézier cúbicos de la curva suave que pasa por los puntos (Catmull-Rom con esquinas). Espejo de toBeziers."""
+    n = len(pts)
+    if n < 2:
+        return []
+    cor = _corners(pts, closed)
+    P = (lambda i: pts[i % n]) if closed else (lambda i: pts[max(0, min(n - 1, i))])
+    out = []
+    for i in range(n if closed else n - 1):
+        p1, p2 = P(i), P(i + 1)
+        m1 = (p2[0] - p1[0], p2[1] - p1[1]) if cor[i % n] else ((p2[0] - P(i - 1)[0]) / 2.0, (p2[1] - P(i - 1)[1]) / 2.0)
+        m2 = (p2[0] - p1[0], p2[1] - p1[1]) if cor[(i + 1) % n] else ((P(i + 2)[0] - p1[0]) / 2.0, (P(i + 2)[1] - p1[1]) / 2.0)
+        out.append((p1, (p1[0] + m1[0] / 3.0, p1[1] + m1[1] / 3.0), (p2[0] - m2[0] / 3.0, p2[1] - m2[1] / 3.0), p2))
+    return out
+
+
 def _plane_for(orient, x, y, z, t):
     if orient == "XZ":
         return dict(o=(x, y + t, z), x=(1, 0, 0), y=(0, 0, 1))
@@ -344,18 +377,24 @@ def build_libre(values, spec, errors=None):
                 w, h, t, x, y, z = [eval_expr(c[k], s) for k in ("w", "h", "t", "x", "y", "z")]
                 if w <= 0 or h <= 0 or t <= 0:
                     errors.append("%s: medidas deben ser > 0" % c["name"]); break
-                outline, holes = rect(w, h), []
+                outline, holes, curves = rect(w, h), [], None
                 sh = shapes.get(c["shape"]) if c["shape"] != "rect" else None
                 if sh:
                     outline = [(u * w, v * h) for u, v in sh["outline"]]
                     if c.get("holes", True):
                         holes = [_keep_hole(hh, w, h, sh.get("size")) for hh in sh["holes"]]
+                    # curvas suaves: los puntos son puntos de paso de una curva exacta (NURBS)
+                    hsm = [bool((sh.get("holesSmooth") or [])[j]) if j < len(sh.get("holesSmooth") or []) else False for j in range(len(holes))]
+                    if sh.get("smooth") or any(hsm):
+                        curves = {"outline": outline if sh.get("smooth") else None, "holes": [hh if hsm[j] else None for j, hh in enumerate(holes)]}
                 kind = c.get("kind", "tablero")
                 part = dict(id=c["id"] if n == 1 else "%s-%d" % (c["id"], i + 1), name=c["name"] if n == 1 else "%s %d" % (c["name"], i + 1),
                             role=c.get("role") or c["name"], material=mat if kind == "tablero" else kind, thickness=t,
                             plane=_plane_for(c["orient"], x, y, z, t), profile=outline)
                 if holes:
                     part["holes"] = holes
+                if curves:
+                    part["curves"] = curves
                 if kind != "tablero":
                     part["process"] = kind
                 P_.append(part)
@@ -416,7 +455,22 @@ def part_brep(p):
         P.append(P[0])
         return rg.PolylineCurve(P)
 
-    curves = [crv(p["profile"])] + [crv(h) for h in p.get("holes") or []]
+    def smooth(pts):
+        """NURBS grado 3 exacta: tramos Bézier unidos con nudos triples."""
+        bz = to_beziers(pts, True)
+        cps = [bz[0][0]] + [q for b in bz for q in b[1:]]
+        nc = rg.NurbsCurve(3, False, 4, len(cps))
+        for i, (u, v) in enumerate(cps):
+            nc.Points.SetPoint(i, plane.PointAt(u, v))
+        for k in range(len(bz) + 1):
+            for j in range(3):
+                nc.Knots[3 * k + j] = float(k)
+        return nc
+
+    cv = p.get("curves") or {}
+    hc = cv.get("holes") or []
+    curves = [smooth(cv["outline"]) if cv.get("outline") else crv(p["profile"])]
+    curves += [smooth(hc[j]) if j < len(hc) and hc[j] else crv(h) for j, h in enumerate(p.get("holes") or [])]
     planar = rg.Brep.CreatePlanarBreps(curves, TOL)
     if not planar:
         return None

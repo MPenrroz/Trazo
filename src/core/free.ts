@@ -1,4 +1,5 @@
 import { evalExpr, type Scope } from './expr';
+import { sampleLoop } from './curve';
 import { arc, bounds2, ccw, polyArea, uid } from './geom';
 import type { ParamDef, ParamValues, Part, Plane, SketchDoc, SketchEl, V2 } from './types';
 
@@ -31,7 +32,7 @@ export interface Component {
 export interface FreeDesign { params: ParamDef[]; components: Component[] }
 
 /** Forma del boceto normalizada a [0,1]×[0,1] (Y hacia arriba), con sus calados. */
-export interface Shape { outline: V2[]; holes: V2[][]; label: string; size: V2 }
+export interface Shape { outline: V2[]; holes: V2[][]; label: string; size: V2; smooth?: boolean; holesSmooth?: boolean[] }
 
 export const THICKNESS_PARAM: ParamDef = {
   key: 't', label: 'Espesor tablero', type: 'choice', unit: 'mm', default: 18, group: 'Material', exposed: false,
@@ -51,7 +52,7 @@ export function newComponent(partial: Partial<Component> = {}): Component {
 
 /** Polígono de un elemento del boceto (px, Y hacia abajo). */
 function elPoly(e: SketchEl): V2[] | null {
-  if (e.kind === 'circle') return arc(e.c[0], e.c[1], e.r, 0, 2 * Math.PI, 48).slice(0, -1);
+  if (e.kind === 'circle') return arc(e.c[0], e.c[1], e.r, 0, 2 * Math.PI, 24).slice(0, -1); // spline por 24 puntos ≈ círculo exacto
   if (e.kind === 'poly' && e.closed && e.pts.length >= 3) return e.pts;
   return null;
 }
@@ -91,7 +92,8 @@ export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
     const holes = polys.filter((h) => parentOf.get(h.e.id) === s.e.id).map((h) => ccw(norm(h.poly)).reverse());
     const size: V2 = [bb.w * sk.mmPerPx, bb.h * sk.mmPerPx];
     const nm = (s.e.kind === 'poly' || s.e.kind === 'circle') && s.e.name ? s.e.name : `Silueta ${k}`;
-    out[s.e.id] = { outline: ccw(norm(s.poly)), holes, size, label: `${nm}${holes.length ? ` (${holes.length} calado${holes.length > 1 ? 's' : ''})` : ''}` };
+    const hs = polys.filter((h) => parentOf.get(h.e.id) === s.e.id).map((h) => h.e.kind === 'circle' || (h.e.kind === 'poly' && !!h.e.smooth));
+    out[s.e.id] = { outline: ccw(norm(s.poly)), holes, size, smooth: s.e.kind === 'circle' || (s.e.kind === 'poly' && !!s.e.smooth), holesSmooth: hs, label: `${nm}${holes.length ? ` (${holes.length} calado${holes.length > 1 ? 's' : ''})` : ''}` };
   }
   return out;
 }
@@ -134,6 +136,7 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
       if ([w, h, t, x, y, z].some((v) => !Number.isFinite(v))) break;
       if (w <= 0 || h <= 0 || t <= 0) { errors.push(`${c.name}: ancho, alto y espesor deben ser mayores que 0 (${Math.round(w)} × ${Math.round(h)} × ${Math.round(t)})`); break; }
       let outline: V2[] = [[0, 0], [w, 0], [w, h], [0, h]], holes: V2[][] = [];
+      let curves: Part['curves'];
       if (c.shape !== 'rect') {
         const sh = shapes[c.shape];
         if (!sh) { if (i === 0) errors.push(`${c.name}: la forma del boceto ya no existe; se usa un rectángulo`); }
@@ -142,13 +145,20 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
           // los calados no se deforman: se ubican estirados con la silueta, pero conservan su proporción
           // (una ventana redonda sigue redonda aunque el respaldo cambie de alto)
           if (c.holes) holes = sh.holes.map((hh) => keepHole(hh, w, h, sh.size));
+          // curvas suaves: los puntos pasan a ser puntos de paso de la spline y se muestrea para 3D/planos
+          const hsm = c.holes ? sh.holes.map((_, j) => !!sh.holesSmooth?.[j]) : [];
+          if (sh.smooth || hsm.some(Boolean)) {
+            curves = { outline: sh.smooth ? outline : undefined, holes: hsm.some(Boolean) ? holes.map((hh, j) => (hsm[j] ? hh : null)) : undefined };
+            if (sh.smooth) outline = sampleLoop(outline);
+            holes = holes.map((hh, j) => (hsm[j] ? sampleLoop(hh) : hh));
+          }
         }
       }
       const kind = c.kind ?? 'tablero';
       parts.push({
         id: n > 1 ? `${c.id}-${i + 1}` : c.id, name: n > 1 ? `${c.name} ${i + 1}` : c.name, role: c.role || c.name,
         material: kind === 'tablero' ? material : kind, thickness: t, plane: planeFor(c.orient, x, y, z, t),
-        profile: outline, holes: holes.length ? holes : undefined, process: kind === 'tablero' ? undefined : kind, source: { comp: c.id, i },
+        profile: outline, holes: holes.length ? holes : undefined, process: kind === 'tablero' ? undefined : kind, source: { comp: c.id, i }, ...(curves ? { curves } : {}),
       });
     }
   }
@@ -268,3 +278,22 @@ export const STARTERS: Starter[] = [{
     ],
   }),
 }];
+
+/**
+ * Volumen de referencia (mueble u objeto existente): parámetros con sus medidas y una pieza "ref"
+ * que se ve en 3D pero no se fabrica. Largo en X, ancho en Y, alto en Z, desde el origen.
+ */
+export function addReference(d: FreeDesign, name: string, largo: number, ancho: number, alto: number, prefix = 'ref'): FreeDesign {
+  const key = (s: string) => {
+    let k = `${prefix}_${s}`;
+    while (d.params.some((p) => p.key === k)) k += '_';
+    return k;
+  };
+  const kl = key('largo'), ka = key('ancho'), kh = key('alto');
+  const group = name.slice(0, 30) || 'Referencia';
+  const mk = (k: string, label: string, v: number): ParamDef => ({ key: k, label, type: 'number', unit: 'mm', default: Math.round(v), min: Math.round(v * 0.5), max: Math.round(v * 1.5), step: 10, exposed: false, group });
+  return {
+    params: [...d.params, mk(kl, `Largo ${name.toLowerCase()}`, largo), mk(ka, `Ancho ${name.toLowerCase()}`, ancho), mk(kh, `Alto ${name.toLowerCase()}`, alto)],
+    components: [...d.components, newComponent({ name: `${name} (referencia)`, role: 'Referencia', orient: 'XY', kind: 'ref', w: kl, h: ka, t: kh, x: '0', y: '0', z: '0' })],
+  };
+}

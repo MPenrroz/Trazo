@@ -21,7 +21,7 @@ const KINDS = ['tablero', 'tapiz', 'ref'] as const;
 const MAX_COMPONENTS = 40, MAX_PARAMS = 20, MAX_SIL = 4, MAX_PTS = 80;
 
 /** Instrucciones completas (Claude no recuerda nada entre llamadas). */
-export function buildPrompt(ctx: { known?: string; focus?: string; description?: string; functions?: string[]; thickness: number }): string {
+export function buildPrompt(ctx: { known?: string; focus?: string; description?: string; functions?: string[]; thickness: number; existing?: { name: string; largo: number; ancho: number; alto: number } }): string {
   return `Eres un diseñador de mobiliario que convierte una imagen de referencia en un modelo paramétrico de TABLEROS PLANOS para fabricar con CNC (piezas planas de espesor constante, cortadas de planchas).
 
 Mira la imagen y propone un diseño inicial que alguien sin experiencia pueda seguir editando.
@@ -29,6 +29,7 @@ ${ctx.known ? `Medida conocida (úsala para escalar todo): ${ctx.known}` : 'No h
 ${ctx.focus ? `Qué tomar de la imagen: ${ctx.focus}` : ''}
 ${ctx.description ? `Descripción del proyecto: ${ctx.description.slice(0, 800)}` : ''}
 ${ctx.functions?.length ? `Funcionalidades: ${ctx.functions.slice(0, 8).join('; ')}` : ''}
+${ctx.existing ? `EL DISEÑO ES PARA UN OBJETO EXISTENTE: "${ctx.existing.name}" de ${ctx.existing.largo} mm de largo (X) × ${ctx.existing.ancho} mm de ancho (Y) × ${ctx.existing.alto} mm de alto (Z), ubicado desde el origen (0,0,0). Ya existe como volumen de referencia con los parámetros ref_largo, ref_ancho y ref_alto: NO lo agregues a "components" ni a "params"; úsalos en tus fórmulas para que las piezas calcen con él (p. ej. un respaldo de ancho "ref_ancho + 2*t" ubicado en x = "-t").` : 'Si la descripción o las funcionalidades mencionan un mueble u objeto existente con medidas, inclúyelo como pieza kind "ref" con parámetros para esas medidas y adapta el diseño a él.'}
 
 MODELO (respeta exactamente estas reglas):
 - Unidades: milímetros. Ejes: X = largo (izquierda→derecha visto de frente), Y = fondo (frente en Y=0, hacia atrás positivo), Z = alto (piso en Z=0).
@@ -42,7 +43,7 @@ MODELO (respeta exactamente estas reglas):
 - "when": "" (siempre) o la clave de un parámetro Sí/No (type "bool").
 - "kind": "tablero" (se fabrica), "tapiz" (cojines) o "ref" (contexto que NO se fabrica, p. ej. un colchón o la cama existente).
 - Prefiere usar el espesor t en "t" y medidas derivadas de parámetros (p. ej. "ancho - 2*t") para que el diseño siga siendo paramétrico.
-- Si una pieza no es rectangular (orejas, curvas, arcos), dale "shape": id de una silueta. Las siluetas son contornos cerrados normalizados a [0,1]×[0,1] con x hacia la derecha e y HACIA ARRIBA; se estiran al ancho×alto de la pieza. "holes" son calados interiores (ventanas, formas recortadas), también en [0,1]. Máximo ${MAX_SIL} siluetas y ${MAX_PTS} puntos cada una; usa suficientes puntos para que las curvas se vean suaves.
+- Si una pieza no es rectangular (orejas, curvas, arcos), dale "shape": id de una silueta. Las siluetas son contornos cerrados normalizados a [0,1]×[0,1] con x hacia la derecha e y HACIA ARRIBA; se estiran al ancho×alto de la pieza. "holes" son calados interiores (ventanas, formas recortadas), también en [0,1]. Máximo ${MAX_SIL} siluetas y ${MAX_PTS} puntos cada una; con más de 8 puntos el contorno se trata como CURVA SUAVE que pasa por ellos (se fabrica como curva exacta en CNC): usa pocos puntos bien ubicados (8-30) y deja esquinas vivas donde el contorno gire más de 50° (p. ej. la base recta).
 - Parámetros: claves cortas en minúscula con guion bajo (ancho, alto_respaldo), "label" en español, rango min/max realista, "exposed": true para lo que un cliente querría elegir.
 - Máximo ${MAX_PARAMS} parámetros y ${MAX_COMPONENTS} piezas. Simplifica: es un punto de partida.
 
@@ -69,13 +70,13 @@ function points(v: unknown): V2[] {
 }
 
 /** Limpia la respuesta de Claude y la construye con el motor real para detectar errores. */
-export function sanitizeProposal(raw: unknown, thickness = 18): Proposal {
+export function sanitizeProposal(raw: unknown, thickness = 18, base: FreeDesign = { params: [], components: [] }): Proposal {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const issues: string[] = [];
 
   // parámetros
   const params: ParamDef[] = [];
-  const seen = new Set<string>(['t', 'i', 'n', 'pi']);
+  const seen = new Set<string>(['t', 'i', 'n', 'pi', ...base.params.map((p) => p.key)]);
   for (const p of (Array.isArray(r.params) ? r.params : []).slice(0, MAX_PARAMS)) {
     const q = (p ?? {}) as Record<string, unknown>;
     const key = slug(str(q.key) || str(q.label));
@@ -126,7 +127,8 @@ export function sanitizeProposal(raw: unknown, thickness = 18): Proposal {
   }
   if (!components.length) issues.push('La propuesta no trae piezas utilizables.');
 
-  const design: FreeDesign = { params, components };
+  // el volumen de referencia (medidas exactas del usuario) va primero
+  const design: FreeDesign = { params: [...base.params, ...params], components: [...base.components, ...components] };
   // construir con el motor real: errores de fórmulas a la vista
   const shapes: Record<string, Shape> = Object.fromEntries(silhouettes.map((s) => [s.id, { outline: s.outline, holes: s.holes, label: s.name, size: [1000, 1000] as V2 }]));
   const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.key === 't' ? thickness : d.default]));

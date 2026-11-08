@@ -1,4 +1,4 @@
-import { bounds2, ccw, chaikin, d2, polyPerimeter, rdp, uid } from '../core/geom';
+import { bounds2, ccw, d2, polyPerimeter, rdp, uid } from '../core/geom';
 import type { SketchDoc, SketchEl, V2 } from '../core/types';
 
 export interface FitOpts {
@@ -76,8 +76,10 @@ export function fitStroke(raw: V2[], o: FitOpts): SketchEl | null {
     }
     return { id: uid('p'), kind: 'poly', pts: out, closed };
   }
-  const smooth = chaikin(rdp(raw, o.eps / 3), closed, 2);
-  return { id: uid('s'), kind: 'poly', pts: closed ? smooth.slice(0, -1) : smooth, closed, smooth: true };
+  // curva suave: pocos puntos de paso (editables); la spline que pasa por ellos se exporta como NURBS/arcos
+  let pts = rdp(raw, o.eps / 2);
+  if (closed && pts.length > 3) pts = pts.slice(0, -1);
+  return { id: uid('s'), kind: 'poly', pts, closed, smooth: true };
 }
 
 /** Elimina vértices casi alineados que deja RDP en las esquinas (giro < tolDeg). */

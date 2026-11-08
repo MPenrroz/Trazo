@@ -19,7 +19,7 @@ Usuario principal: arquitecto o diseñador. Usuario secundario: el cliente final
 ### 2 · Boceto
 - Lienzo para Apple Pencil: el lápiz dibuja; los dedos mueven y hacen zoom.
 - Imagen de calco (Procreate, Concepts, foto) con opacidad ajustable.
-- **Tinta inteligente**: rectas con ángulos imantados, rectángulos, círculos y curvas suaves.
+- **Tinta inteligente**: rectas con ángulos imantados, rectángulos, círculos y curvas suaves (curvas exactas: NURBS en .3dm, arcos en DXF de corte).
 - Trazo libre, cotas, borrar, deshacer y rehacer.
 - **Escala**: se calibra dibujando sobre una medida conocida.
 - Las formas cerradas sirven como perfil (tipología Costillas) o como siluetas de piezas (Diseño libre); lo dibujado dentro de una silueta se vuelve calado.

@@ -1,4 +1,5 @@
 import wasmUrl from 'rhino3dm/rhino3dm.wasm?url';
+import { toBeziers } from '../core/curve';
 import { bounds3, normal } from '../core/geom';
 import { placedProfile, type NestResult } from '../core/nesting';
 import { partLayers } from '../core/pockets';
@@ -36,6 +37,17 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
     pl.add(pts[0][0], pts[0][1], pts[0][2]);
     return new rh.PolylineCurve(pl);
   };
+  /** Curva suave exacta: tramos Bézier cúbicos unidos en una NURBS de grado 3 (nudos triples). */
+  const nurbs = (ctrl: V2[], map: (p: V2) => [number, number, number], closed = true) => {
+    const bz = toBeziers(ctrl, closed);
+    const pts = [bz[0][0], ...bz.flatMap((b) => [b[1], b[2], b[3]])];
+    const c = new rh.NurbsCurve(3, false, 4, pts.length);
+    pts.forEach((p, i) => c.points().set(i, [...map(p), 1]));
+    for (let k = 0; k <= bz.length; k++) for (let j = 0; j < 3; j++) c.knots().set(3 * k + j, k);
+    return c;
+  };
+  const loop = (pts: V2[], ctrl: V2[] | null | undefined, map: (p: V2) => [number, number, number] = ([x, y]) => [x, y, 0]) =>
+    ctrl && ctrl.length >= 3 ? nurbs(ctrl, map) : curve(pts.map(map));
   const worldXY = rh.Plane.worldXY();
 
   for (const p of parts) {
@@ -46,10 +58,12 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
     const toPart = rh.Transform.planeToPlane(worldXY, { origin: p.plane.o, xAxis: p.plane.x, yAxis: p.plane.y, zAxis: n });
     // Piezas con cajeados: una extrusión por capa (zona rebajada más delgada). En Rhino: _BooleanUnion para un solo sólido.
     const layersOf = partLayers(p);
+    // capa única sin cajeados: contornos exactos (NURBS) si la pieza tiene curvas suaves
+    const exact = layersOf.length === 1 && !p.pockets?.length ? p.curves : undefined;
     layersOf.forEach((l, i) => {
-      const ex = rh.Extrusion.create(curve(l.outer.map(([x, y]) => [x, y, 0])), l.w1 - l.w0, true);
+      const ex = rh.Extrusion.create(loop(l.outer, exact?.outline), l.w1 - l.w0, true);
       if (!ex) return;
-      for (const h of l.holes) ex.addInnerProfile(curve(h.map(([x, y]) => [x, y, 0])));
+      l.holes.forEach((h, j) => ex.addInnerProfile(loop(h, exact?.holes?.[j])));
       ex.transform(rh.Transform.translationXYZ(0, 0, l.w0));
       ex.transform(toPart);
       const a = new rh.ObjectAttributes();
@@ -77,11 +91,15 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
   const lSheet = layer('CNC · Tableros', '#888888'), lCut = layer('CNC · Corte exterior', '#d62828'), lHole = layer('CNC · Corte interior', '#1d4ed8');
   for (let s = 0; s < nest.sheets; s++) {
     const oy = -SH - 400 - s * (SH + 200);
-    const add = (pts: V2[], li: number, name: string) => { const a = new rh.ObjectAttributes(); a.layerIndex = li; a.name = name; doc.objects().add(curve(pts.map(([x, y]) => [maxX + x, oy + y, 0])), a); };
+    const add = (pts: V2[], li: number, name: string, ctrl?: V2[] | null) => {
+      const a = new rh.ObjectAttributes(); a.layerIndex = li; a.name = name;
+      doc.objects().add(loop(pts, ctrl, ([x, y]) => [maxX + x, oy + y, 0]), a);
+    };
     add([[0, 0], [SW, 0], [SW, SH], [0, SH]], lSheet, `Tablero ${s + 1}`);
     for (const pl of nest.placements.filter((p) => p.sheet === s)) {
-      add(placedProfile(pl, pl.part.profile), lCut, pl.part.name);
-      for (const h of pl.part.holes ?? []) add(placedProfile(pl, h), lHole, `${pl.part.name} vaciado`);
+      const cv = pl.part.curves;
+      add(placedProfile(pl, pl.part.profile), lCut, pl.part.name, cv?.outline && placedProfile(pl, cv.outline));
+      (pl.part.holes ?? []).forEach((h, j) => { const c = cv?.holes?.[j]; add(placedProfile(pl, h), lHole, `${pl.part.name} vaciado`, c && placedProfile(pl, c)); });
       for (const k of pl.part.pockets ?? []) {
         if (pl.flipped ? k.face !== 'base' : k.face !== 'top') continue; // solo los que quedan boca arriba
         add(placedProfile(pl, k.outline), layer(`CNC · Cajeado ${k.depth} mm`, '#0e9f6e'), `${pl.part.name} · ${k.name}`);
@@ -96,6 +114,7 @@ export async function export3dm(project: Project, parts: Part[], values: Record<
     const k = sk.mmPerPx;
     for (const e of sk.elements) {
       const a = new rh.ObjectAttributes(); a.layerIndex = lSk;
+      if (e.kind === 'poly' && e.smooth && e.pts.length > 2) { doc.objects().add(nurbs(e.pts, ([x, y]) => [x * k, -200, -y * k], e.closed), a); continue; }
       const pts: V2[] = e.kind === 'circle'
         ? Array.from({ length: 49 }, (_, i) => [e.c[0] + e.r * Math.cos((i / 48) * 2 * Math.PI), e.c[1] + e.r * Math.sin((i / 48) * 2 * Math.PI)] as V2)
         : e.kind === 'dim' ? [e.a, e.b] : e.pts;

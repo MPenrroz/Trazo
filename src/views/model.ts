@@ -213,6 +213,10 @@ export function modelView(root: HTMLElement) {
     });
     (window as unknown as { __trazoDirect?: DirectEdit }).__trazoDirect = direct; // ayuda para pruebas automáticas
     refresh(true);
+    // al volver de "Dibujar en la pieza", queda seleccionada la pieza editada
+    let back: string | null = null;
+    try { back = sessionStorage.getItem('trazo:select'); sessionStorage.removeItem('trazo:select'); } catch { /* */ }
+    if (back && free) direct.select(back);
   });
   return () => { disposed = true; direct?.destroy(); viewer?.dispose(); };
 }

@@ -1,13 +1,13 @@
 // "Crear diseño desde una imagen": Claude interpreta la referencia y propone un diseño libre editable.
 // Funciona donde la página puede consultar a Claude (enlace de claude.ai, capacidad `sample` con imágenes);
 // en la app instalada el botón no aparece.
-import { freeParams } from '../core/free';
+import { addReference, freeParams } from '../core/free';
 import { bounds2 } from '../core/geom';
 import { buildPrompt, sanitizeProposal, type Proposal } from '../core/proposal';
 import { fieldValue } from '../core/simple';
 import { store } from '../core/store';
 import type { RefImage, SketchEl, V2 } from '../core/types';
-import { h } from '../ui';
+import { h, parseMm } from '../ui';
 import { replaceDesign } from './design-change';
 
 type SampleFn = ((input: string, opts?: Record<string, unknown>) => Promise<{ text: string }>) & {
@@ -74,8 +74,8 @@ async function applyProposal(p: Proposal, ref: RefImage, useUnderlay: boolean) {
       const w = comp ? fieldValue(comp, 'w', pr.values) : 600, hh = comp ? fieldValue(comp, 'h', pr.values) : 600;
       const W = (Number.isFinite(w) && w > 0 ? w : 600) / k, H = (Number.isFinite(hh) && hh > 0 ? hh : 600) / k;
       const map = (pl: V2[]) => pl.map(([u, v]) => [ox + u * W, oy + (1 - v) * H] as V2);
-      els.push({ id: s.id, kind: 'poly', closed: true, smooth: s.outline.length > 12, name: s.name, pts: map(s.outline) });
-      s.holes.forEach((hl, j) => els.push({ id: `${s.id}-c${j + 1}`, kind: 'poly', closed: true, smooth: hl.length > 12, pts: map(hl) }));
+      els.push({ id: s.id, kind: 'poly', closed: true, smooth: s.outline.length > 8, name: s.name, pts: map(s.outline) });
+      s.holes.forEach((hl, j) => els.push({ id: `${s.id}-c${j + 1}`, kind: 'poly', closed: true, smooth: hl.length > 8, pts: map(hl) }));
       ox += W + 120;
     }
     pr.sketch.elements.push(...els);
@@ -108,6 +108,15 @@ export async function openInterpret(refs: RefImage[], start = 0, done?: () => vo
   const known = h('input', { id: 'ai-known', placeholder: 'Ej: la cama mide 106 cm de ancho', enterkeyhint: 'next' });
   const focus = h('textarea', { id: 'ai-focus', rows: 2, placeholder: 'Ej: solo el respaldo y la baranda; sin cajones' });
   const under = h('input', { type: 'checkbox', checked: true, id: 'ai-under' });
+  // mueble u objeto existente al que se adapta el diseño (p. ej. la cama nido): volumen de referencia exacto
+  const exName = h('input', { id: 'ai-ex-name', placeholder: 'Ej: Cama nido plaza y media' });
+  const exL = h('input', { id: 'ai-ex-l', inputmode: 'decimal', placeholder: 'Largo (ej: 200 cm)' });
+  const exA = h('input', { id: 'ai-ex-a', inputmode: 'decimal', placeholder: 'Ancho (ej: 106 cm)' });
+  const exH = h('input', { id: 'ai-ex-h', inputmode: 'decimal', placeholder: 'Alto (ej: 45 cm)' });
+  const existing = () => {
+    const l = parseMm(exL.value), a = parseMm(exA.value), hh = parseMm(exH.value);
+    return [l, a, hh].every((n) => Number.isFinite(n) && n > 0) ? { name: exName.value.trim() || 'Mueble existente', largo: l, ancho: a, alto: hh } : undefined;
+  };
 
   function form() {
     const thumbs = h('div', { class: 'ai-thumbs' }, ...refs.map((r, i) => h('button', { class: `ai-thumb ${i === idx ? 'on' : ''}`, 'aria-label': `Imagen ${i + 1}`, onclick: () => { idx = i; form(); } }, h('img', { src: r.src, alt: '' }))));
@@ -116,12 +125,18 @@ export async function openInterpret(refs: RefImage[], start = 0, done?: () => vo
       h('img', { class: 'ai-preview', src: refs[idx].src, alt: 'Imagen de referencia' }),
       h('label', { class: 'field' }, 'Una medida que conozcas (recomendado)', known),
       h('label', { class: 'field' }, '¿Qué tomar de la imagen? (opcional)', focus),
+      h('details', { class: 'ai-existing', open: !!(exL.value || exA.value) },
+        h('summary', null, '¿Es para un mueble existente? (opcional)'),
+        h('p', { class: 'muted small' }, 'Se agrega como volumen de referencia con tus medidas exactas y el diseño se adapta a él. Acepta mm, cm o m.'),
+        h('label', { class: 'field' }, 'Nombre', exName),
+        h('div', { class: 'grid3' }, exL, exA, exH)),
       h('label', { class: 'mini-toggle' }, under, 'Usar la imagen como calco en el Boceto'),
       h('p', { class: 'muted' }, 'Usa tu cuenta de Claude; la primera vez te pedirá permiso. Suele tardar entre 30 segundos y 2 minutos.'),
       h('div', { class: 'row end' }, h('button', { class: 'ghost', onclick: close }, 'Cancelar'), h('button', { onclick: run }, 'Crear diseño'))].filter(Boolean) as Node[]);
   }
 
   async function run() {
+    const ex = existing();
     ctl = new AbortController();
     const t0 = Date.now();
     const status = h('p', { class: 'muted' }, 'Mirando la imagen…');
@@ -131,9 +146,10 @@ export async function openInterpret(refs: RefImage[], start = 0, done?: () => vo
     try {
       const raw = await sample!.json(buildPrompt({
         known: known.value.trim() || undefined, focus: focus.value.trim() || undefined,
-        description: store.project.description, functions: store.project.functions, thickness: Number(store.values.t) || 18,
+        description: store.project.description, functions: store.project.functions, thickness: Number(store.values.t) || 18, existing: ex,
       }), { images: [dataUrlToBlob(refs[idx].src)], signal: ctl.signal, modelTier: 'default' });
-      result(sanitizeProposal(raw, Number(store.values.t) || 18));
+      const base = ex ? addReference({ params: [], components: [] }, ex.name, ex.largo, ex.ancho, ex.alto) : undefined;
+      result(sanitizeProposal(raw, Number(store.values.t) || 18, base));
     } catch (e) {
       const code = (e as { code?: string }).code ?? 'upstream_error';
       if (code === 'cancelled') { form(); return; }

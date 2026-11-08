@@ -101,7 +101,14 @@ class Store {
   get template() { return getTemplate(this.project.template); }
   get params() {
     const defs = this.template.id === 'libre' ? freeParams(this.project.free) : this.template.params;
-    return resolveParams(defs, this.project.rules);
+    // el espesor ofrece los espesores del tablero elegido (incluye tableros propios con medidas especiales)
+    const th = [...this.material.thicknesses].sort((a, b) => a - b);
+    const withT = defs.map((d) => {
+      if (d.key !== 't' || d.type !== 'choice' || !th.length) return d;
+      const near = th.reduce((a, b) => (Math.abs(b - Number(d.default)) < Math.abs(a - Number(d.default)) ? b : a));
+      return { ...d, default: near, options: th.map((n) => ({ value: n, label: `${n} mm` })) };
+    });
+    return resolveParams(withT, this.project.rules);
   }
   /** Formas cerradas del boceto disponibles como piezas (diseño libre). */
   get shapes() { return shapesFromSketch(this.project.sketch); }
