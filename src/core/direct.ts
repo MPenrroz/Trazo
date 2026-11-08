@@ -33,6 +33,30 @@ export function nudgeFormula(src: string, delta: number): string {
 const usesKey = (c: Component, key: string) =>
   (['w', 'h', 't', 'x', 'y', 'z', 'count', 'when'] as const).some((f) => new RegExp(`(^|[^\\wáéíóúñ])${key}($|[^\\wáéíóúñ])`).test(c[f]));
 
+/**
+ * Alcance de una edición directa sobre una medida ligada a un parámetro que usan VARIAS piezas:
+ * 'piece' = solo esta pieza (su fórmula pasa a "parámetro ± ajuste"); 'shared' = cambia el parámetro (todas).
+ */
+export type EditScope = 'piece' | 'shared';
+let scope: EditScope = (() => { try { return (localStorage.getItem('trazo:scope') as EditScope) || 'piece'; } catch { return 'piece'; } })();
+export const getScope = () => scope;
+export function setScope(s: EditScope) { scope = s; try { localStorage.setItem('trazo:scope', s); } catch { /* */ } }
+
+/** Cuántas piezas usan cada parámetro ligado a los campos de esta pieza. */
+export function sharedLinks(design: FreeDesign, compId: string, params: ParamDef[]): { key: string; label: string; users: number }[] {
+  const c = design.components.find((x) => x.id === compId);
+  if (!c) return [];
+  const out: { key: string; label: string; users: number }[] = [];
+  for (const f of ['w', 'h', 'x', 'y', 'z'] as const) {
+    const m = ID.exec(c[f]);
+    const def = m ? params.find((p) => p.key === m[1] && (p.type === 'number' || p.type === 'int')) : undefined;
+    if (!def || out.some((o) => o.key === def.key)) continue;
+    const users = design.components.filter((x) => usesKey(x, def.key)).length;
+    if (users > 1) out.push({ key: def.key, label: def.label, users });
+  }
+  return out;
+}
+
 export interface DragOp { field: Field; delta: number }
 export interface DragResult { design: FreeDesign; values: ParamValues; notes: string[]; applied: number[] }
 
@@ -40,7 +64,8 @@ export interface DragResult { design: FreeDesign; values: ParamValues; notes: st
  * Aplica cambios a una pieza. Con `link`, el segundo op usa −(lo realmente aplicado en el primero):
  * así al estirar desde el lado negativo la cara opuesta queda fija aunque un parámetro tope en su mínimo/máximo.
  */
-export function applyDrag(design: FreeDesign, values: ParamValues, params: ParamDef[], compId: string, ops: DragOp[], link = false): DragResult {
+export function applyDrag(design: FreeDesign, values: ParamValues, params: ParamDef[], compId: string, ops: DragOp[], link = false, opts: { scope?: EditScope; fine?: boolean } = {}): DragResult {
+  const sc = opts.scope ?? scope;
   const d: FreeDesign = structuredClone(design);
   const v: ParamValues = { ...values };
   const notes: string[] = [];
@@ -51,11 +76,19 @@ export function applyDrag(design: FreeDesign, values: ParamValues, params: Param
     const delta = link && k === 1 ? -applied[0] : op.delta;
     const src = c[op.field];
     const m = ID.exec(src);
-    const def = m ? params.find((p) => p.key === m[1] && (p.type === 'number' || p.type === 'int')) : undefined;
+    let def = m ? params.find((p) => p.key === m[1] && (p.type === 'number' || p.type === 'int')) : undefined;
+    // parámetro compartido con otras piezas y alcance "solo esta pieza": se ajusta la fórmula de esta pieza
+    if (def && sc === 'piece' && d.components.filter((x) => usesKey(x, def!.key)).length > 1) {
+      c[op.field] = nudgeFormula(src, delta);
+      applied.push(delta);
+      if (k === 0) notes.push(`Solo «${c.name}» (las demás piezas con «${def.label}» no cambian)`);
+      def = undefined;
+      return;
+    }
     if (def) {
       const cur = Number(v[def.key] ?? def.default);
       let next = cur + delta;
-      if (def.step) next = Math.round((next - (def.min ?? 0)) / def.step) * def.step + (def.min ?? 0);
+      if (def.step && !opts.fine) next = Math.round((next - (def.min ?? 0)) / def.step) * def.step + (def.min ?? 0);
       if (def.min !== undefined) next = Math.max(def.min, next);
       if (def.max !== undefined) next = Math.min(def.max, next);
       next = Math.round(next * 1000) / 1000;

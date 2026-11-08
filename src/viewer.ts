@@ -119,12 +119,36 @@ export class Viewer {
     if (this.framed && !this.userMoved) this.frame(this.lastParts);
   }
 
+  /**
+   * Ancla visual (tienda): el lado elegido del producto queda quieto en pantalla al cambiar medidas,
+   * y el producto crece desde ahí. null = sin ancla (coordenadas reales, para editar).
+   */
+  anchor: 'start' | 'center' | 'end' | null = null;
+  private anchorAt: THREE.Vector3 | null = null;
+  private anchorPoint(parts: Part[]): THREE.Vector3 {
+    const b = bounds3(parts.length ? parts : this.lastParts);
+    const k = this.anchor === 'end' ? 1 : this.anchor === 'center' ? 0.5 : 0;
+    return new THREE.Vector3(b.min[0] + (b.max[0] - b.min[0]) * k, b.min[1] + (b.max[1] - b.min[1]) * k, b.min[2]);
+  }
+  /** Cambia el ancla sin mover lo que se ve ahora. */
+  setAnchor(a: 'start' | 'center' | 'end' | null) {
+    const cur = this.group.position.clone();
+    this.anchor = a;
+    this.anchorAt = a && this.lastParts.length ? this.anchorPoint(this.lastParts).add(cur) : null;
+    if (!a) this.group.position.set(0, 0, 0);
+  }
+
   setParts(parts: Part[], materials: Material[], refit = false) {
     this.group.clear();
     this.group.add(partsToGroup(parts, materials));
     this.applyExplode();
     this.lastParts = parts;
-    if (!this.framed || refit) { this.frame(parts); this.framed = true; }
+    if (this.anchor && parts.length) {
+      const p = this.anchorPoint(parts);
+      if (!this.anchorAt || refit) this.anchorAt = p.clone();
+      this.group.position.copy(this.anchorAt).sub(p);
+    }
+    if (!this.framed || refit) { this.group.position.set(0, 0, 0); if (this.anchor) this.anchorAt = this.anchorPoint(parts); this.frame(parts); this.framed = true; }
   }
 
   frame(parts: Part[]) {

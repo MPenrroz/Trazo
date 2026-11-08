@@ -53,7 +53,7 @@ export class DirectEdit {
   private handles: Handle[] = [];
   private down: { x: number; y: number; t: number; multi: boolean } | null = null;
   private pointers = new Set<number>();
-  private drag: { h: Handle; s0: number; last: number; res: DragResult | null; base0: THREE.Vector3 } | null = null;
+  private drag: { h: Handle; s0: number; last: number; res: DragResult | null; base0: THREE.Vector3; snapped: string | null } | null = null;
   private label = document.createElement('div');
   private raf = 0;
   private frame = () => this.scaleHandles();
@@ -185,7 +185,7 @@ export class DirectEdit {
         if (s0 !== null) {
           e.stopPropagation(); e.preventDefault();
           this.viewer.controls.enabled = false;
-          this.drag = { h, s0, last: 0, res: null, base0: h.base.clone() };
+          this.drag = { h, s0, last: 0, res: null, base0: h.base.clone(), snapped: null };
           for (const o of this.handles) o.obj.visible = o === h; // solo la manilla activa
           return;
         }
@@ -198,23 +198,26 @@ export class DirectEdit {
     if (!this.drag) return;
     const s = this.axisParam(this.drag.h, e.clientX, e.clientY);
     if (s === null) return;
-    const delta = this.snap(this.drag.h, s - this.drag.s0);
+    const { delta, target } = this.snap(this.drag.h, s - this.drag.s0);
+    this.drag.snapped = target;
     this.label.hidden = false;
     const r = this.el.getBoundingClientRect();
     this.label.style.left = `${e.clientX - r.left}px`;
     this.label.style.top = `${e.clientY - r.top}px`;
     if (delta === this.drag.last && this.drag.res) return;
     this.drag.last = delta;
-    const res = this.compute(this.drag.h, delta);
+    // vista previa fina (sin redondear al paso de los parámetros): el movimiento sigue al dedo
+    const res = this.compute(this.drag.h, delta, true);
     this.drag.res = res;
     const h = this.drag.h;
     const ap = Math.round(res?.applied[0] ?? 0);
     // la manilla acompaña al dedo: en el lado negativo la cara se mueve al revés del cambio de medida
     const faceMove = h.kind === 'size' && h.side === -1 ? -(res?.applied[0] ?? 0) : res?.applied[0] ?? 0;
     h.base.copy(this.drag.base0).addScaledVector(h.axis, faceMove);
-    this.label.textContent = h.kind === 'size'
+    this.label.textContent = (h.kind === 'size'
       ? `${FIELD_LABEL[h.field]} ${Math.round((h.size ?? 0) + ap)} mm (${ap >= 0 ? '+' : '−'}${Math.abs(ap)})`
-      : `${h.field.toUpperCase()} ${ap >= 0 ? '+' : '−'}${Math.abs(ap)} mm`;
+      : `${h.field.toUpperCase()} ${ap >= 0 ? '+' : '−'}${Math.abs(ap)} mm`) + (target ? ` · ⇥ toca «${target}»` : '');
+    this.label.classList.toggle('snapped', !!target);
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(() => { if (res) this.hooks.preview(res.design, res.values); });
   };
@@ -222,8 +225,11 @@ export class DirectEdit {
   private onUp = (e: PointerEvent) => {
     this.pointers.delete(e.pointerId);
     if (this.drag) {
-      const res = this.drag.res;
+      const dr = this.drag;
+      // al soltar: resultado definitivo (con el paso de los parámetros, salvo que haya quedado tocando otra pieza)
+      const res = dr.res ? this.compute(dr.h, dr.last, !!dr.snapped) ?? dr.res : null;
       this.drag = null;
+      this.label.classList.remove('snapped');
       this.viewer.controls.enabled = true;
       this.label.hidden = true;
       cancelAnimationFrame(this.raf);
@@ -239,36 +245,45 @@ export class DirectEdit {
     this.select((hit?.object.userData.partId as string) ?? (hit?.object.parent?.userData.partId as string) ?? null);
   };
 
-  /** Imán a caras de otras piezas; si no hay ninguna cerca, grilla de 5 mm. */
-  private snap(h: Handle, raw: number): number {
+  /** Imán a caras de otras piezas (tolerancia en pantalla, ~20 px); si no hay ninguna cerca, grilla de 1 mm. */
+  private snap(h: Handle, raw: number): { delta: number; target: string | null } {
     const p = this.part!;
     const i = h.axis.x ? 0 : h.axis.y ? 1 : 2;
     const own = partVertices(p).map((v) => v[i]);
-    const faces = h.kind === 'size' ? [h.base.getComponent(i)] : [Math.min(...own), Math.max(...own)];
+    const faces = h.kind === 'size' ? [this.drag?.base0.getComponent(i) ?? h.base.getComponent(i)] : [Math.min(...own), Math.max(...own)];
     const comp = p.source?.comp;
-    const targets = this.hooks.parts().filter((q) => q.source?.comp !== comp).flatMap((q) => { const vs = partVertices(q).map((v) => v[i]); return [Math.min(...vs), Math.max(...vs)]; });
-    let best: number | null = null;
-    for (const f of faces) for (const t of targets) {
-      const d = t - f;
-      if (Math.abs(d - raw) < 15 && (best === null || Math.abs(d - raw) < Math.abs(best - raw))) best = d;
+    // mm por píxel a la distancia de la manilla
+    const cam = this.viewer.camera as THREE.PerspectiveCamera;
+    const dist = cam.position.distanceTo(this.drag?.base0 ?? h.base);
+    const mmPerPx = (2 * dist * Math.tan(((cam.fov ?? 45) * Math.PI) / 360)) / Math.max(1, this.el.clientHeight);
+    const tol = Math.max(6, 14 * mmPerPx);
+    let best: { d: number; name: string } | null = null;
+    for (const q of this.hooks.parts()) {
+      if (q.source?.comp === comp) continue;
+      const vs = partVertices(q).map((v) => v[i]);
+      for (const t of [Math.min(...vs), Math.max(...vs)]) for (const f of faces) {
+        const d = t - f;
+        if (Math.abs(d) < 0.5) continue; // ya alineada: no frena el inicio del arrastre
+        if (Math.abs(d - raw) < tol && (!best || Math.abs(d - raw) < Math.abs(best.d - raw))) best = { d, name: q.name };
+      }
     }
-    let delta = best ?? Math.round(raw / 5) * 5;
+    let delta = best ? best.d : Math.round(raw);
     // medida mínima de 5 mm
     if (h.kind === 'size' && h.size !== undefined) {
       if (h.side === 1) delta = Math.max(delta, 5 - h.size);
       else delta = Math.min(delta, h.size - 5);
     }
-    return Math.round(delta * 10) / 10;
+    return { delta: Math.round(delta * 10) / 10, target: best ? best.name : null };
   }
 
-  private compute(h: Handle, delta: number): DragResult | null {
+  private compute(h: Handle, delta: number, fine = false): DragResult | null {
     const design = this.hooks.design(), comp = this.part?.source?.comp;
     if (!design || !comp) return null;
     let ops: DragOp[], link = false;
     if (h.kind === 'move') ops = [{ field: h.field, delta }];
     else if (h.side === 1) ops = [{ field: h.field, delta }];
     else { ops = [{ field: h.field, delta: -delta }, { field: h.posField!, delta }]; link = true; }
-    return applyDrag(design, this.hooks.values(), this.hooks.params(), comp, ops, link);
+    return applyDrag(design, this.hooks.values(), this.hooks.params(), comp, ops, link, { fine });
   }
 }
 

@@ -174,3 +174,15 @@ Arreglos rápidos (S, prioridad A/B) que se pueden hacer en una sola tanda:
 | N1 | Un producto nuevo abre en el paso 3. | "Desde cero" abre en **1 · Concepto**; los ejemplos siguen abriendo en el 3D. | Hecho |
 | N2 | Pasar de un paso a otro no es intuitivo. | En iPad todos los pasos muestran su nombre bajo el número; al pie de cada página hay **← paso anterior** y **Siguiente →**. | Hecho |
 | N3 | La imagen de referencia y la posición del mueble existente no calzan (respaldo girado, baranda atravesando la cama). | Tarjeta **Mueble existente** en Concepto (junto a las imágenes), que alimenta "Crear diseño". Reglas explícitas de ubicación para la IA (cabecera/pies "de lado", costados "de frente") y corrección automática de piezas que atraviesan el volumen. En cada pieza: **Ubicar junto a «mueble»** (Cabecera, Pies, Costado frente, Costado fondo, Encima) con fórmulas que siguen sus medidas. Aviso en la revisión si una pieza atraviesa el volumen. | Hecho |
+
+## Prueba en iPad · edición de piezas (feedback 6)
+
+| # | Problema reportado | Solución | Estado |
+|---|---|---|---|
+| D1 | Modificar una pieza duplicada cambia todo el diseño. | Alcance de edición **Solo esta pieza / Todas** (por defecto solo esta): la medida compartida pasa a "parámetro ± ajuste" en esa pieza. Al dibujar en una pieza cuya forma comparte otra, se ofrece copiar la forma. | Hecho |
+| D2 | Imán al estirar cerca de otra pieza. | Imán a caras de otras piezas con tolerancia en pantalla (~14 px), etiqueta verde "⇥ toca «pieza»"; se corrigió que el imán usaba la cara ya movida. | Hecho |
+| D3 | Mover/estirar no es suave. | Vista previa con 1 mm de resolución y sin redondear al paso del parámetro; el redondeo se aplica al soltar. | Hecho |
+| D4 | Las demás fichas distraen al editar una pieza. | Con una ficha abierta, las demás se compactan a una línea. | Hecho |
+| D5 | En la tienda, cambiar el largo mueve piezas hacia ambos lados. | Control **Crece desde: Izquierda / Centro / Derecha** sobre el 3D de la tienda. | Hecho |
+| D6 | Al recorrer opciones se pierde el 3D. | El 3D de la tienda queda fijo (sticky) mientras se desplazan las opciones. | Hecho |
+| D7 | 2D y 3D simultáneos y conectados; líneas CAD con restricciones. | Propuesta en conversación (bloque siguiente). | Pendiente |

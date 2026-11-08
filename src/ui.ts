@@ -128,6 +128,18 @@ export function formDialog(title: string, fields: { key: string; label: string; 
   });
 }
 
+/** Elegir entre varias opciones (botones grandes). Devuelve la clave elegida o null si se cancela. */
+export function choiceDialog(title: string, options: [string, string][]): Promise<string | null> {
+  return new Promise((res) => {
+    const close = (v: string | null) => { wrap.remove(); res(v); };
+    const wrap = h('div', { class: 'dlg-back', onclick: (e: Event) => { if (e.target === wrap) close(null); } },
+      h('div', { class: 'dlg' }, h('p', null, title),
+        h('div', { class: 'choice-list' }, ...options.map(([k, l], i) => h('button', { class: i ? 'ghost' : '', onclick: () => close(k) }, l))),
+        h('div', { class: 'row end' }, h('button', { class: 'ghost', onclick: () => close(null) }, 'Cancelar'))));
+    document.body.appendChild(wrap);
+  });
+}
+
 /** Número escrito por una persona: acepta coma decimal y unidades (mm, cm, m). Devuelve mm o NaN. */
 export function parseMm(s: string): number {
   const m = /^\s*(-?\d+(?:[.,]\d+)?)\s*(mm|cm|m)?\s*$/i.exec(s);

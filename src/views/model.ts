@@ -4,6 +4,7 @@ import type { ParamDef } from '../core/types';
 import { checkList, h, money, paramControl } from '../ui';
 import { Viewer } from '../viewer';
 import { nextStep } from '../steps';
+import { getScope, setScope, sharedLinks } from '../core/direct';
 import { drawOnPiece, paramDefsEditor, piecesEditor, type PiecesEl } from './free-editor';
 import { DirectEdit, partDims } from './direct-edit';
 import { convertToFree, freeEquivalent } from './design-change';
@@ -136,6 +137,7 @@ export function modelView(root: HTMLElement) {
     selBar.replaceChildren(...([
       h('div', { class: 'sel-info' }, h('b', null, comp?.name ?? p.name), h('small', null, `${partDims(p)}${copies > 1 ? ` · ${copies} copias` : ''}`)),
       comp && comp.kind !== 'ref' ? h('span', { class: 'sel-hint' }, 'Arrastra ● para estirar · flechas para mover') : null,
+      comp && store.project.free && sharedLinks(store.project.free, comp.id, store.params).length ? h('button', { class: 'ghost sm', title: 'Esta pieza comparte medidas con otras', onclick: () => { setScope(getScope() === 'piece' ? 'shared' : 'piece'); renderSelBar(p); pieces?.selectPiece(comp.id); } }, getScope() === 'piece' ? 'Cambia: solo esta' : 'Cambia: todas las ligadas') : null,
       comp && comp.kind !== 'ref' ? h('button', { class: 'ghost sm', onclick: () => drawOnPiece(comp.id) }, 'Dibujar en la pieza') : null,
       comp ? h('button', { class: 'ghost sm', onclick: () => {
         remember();

@@ -288,10 +288,19 @@ describe('manipulación directa', () => {
     // w = "ancho + 2*t" no es un parámetro solo → se ajusta la fórmula
     expect(r.design.components.find((c) => c.id === 'respaldo')!.w).toBe('ancho + 2*t + 400');
     expect(r.design.components.find((c) => c.id === 'respaldo')!.y).toBe('-t - 400');
-    const r2 = applyDrag(design, values, params, 'larg-sup', [{ field: 'w', delta: 900 }, { field: 'x', delta: -900 }], true);
+    const r2 = applyDrag(design, values, params, 'larg-sup', [{ field: 'w', delta: 900 }, { field: 'x', delta: -900 }], true, { scope: 'shared' });
     expect(r2.values.largo_baranda).toBe(1800); // tope del rango
     expect(r2.applied).toEqual([600, -600]);
     expect(r2.notes[0]).toMatch(/tope del rango/);
+  });
+  it('con alcance "solo esta pieza" no cambia el parámetro compartido (copias)', () => {
+    const r = applyDrag(design, values, params, 'larg-sup', [{ field: 'w', delta: 50 }], false, { scope: 'piece' });
+    expect(r.values.largo_baranda).toBe(values.largo_baranda);
+    expect(r.design.components.find((c) => c.id === 'larg-sup')!.w).toBe('largo_baranda + 50');
+  });
+  it('vista previa fina: no redondea al paso del parámetro', () => {
+    const r = applyDrag(design, values, params, 'larg-sup', [{ field: 'w', delta: 3 }], false, { scope: 'shared', fine: true });
+    expect(r.applied[0]).toBe(3);
   });
   it('no modifica el diseño original', () => {
     applyDrag(design, values, params, 'barrote', [{ field: 'x', delta: 30 }]);

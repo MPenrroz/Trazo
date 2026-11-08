@@ -421,3 +421,24 @@ a.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(
 .add-piece.ref { color: var(--muted); }
 .ai-existing summary { cursor: pointer; font-weight: 600; min-height: var(--tap); display: flex; align-items: center; }
 .ai-existing .grid3 input { min-height: var(--tap); }
+
+/* --- feedback 6 --- */
+/* tienda: el 3D queda a la vista mientras se recorren las opciones */
+@media (min-width: 761px) { .shop-visual { position: sticky; top: 74px; align-self: start; } }
+@media (max-width: 760px) { .shop-visual { position: sticky; top: 104px; z-index: 3; height: 42vh; background: var(--bg); } }
+.page.model .viewer-wrap { position: relative; }
+.anchor-ctl { position: absolute; left: 12px; bottom: 12px; display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,.92); border-radius: 12px; padding: 4px; box-shadow: 0 1px 4px rgba(0,0,0,.08); z-index: 4; }
+.anchor-ctl span { font-size: 12px; color: var(--muted); padding: 0 6px; }
+.anchor-ctl .seg-btn { min-height: 40px; padding: 0 10px; font-size: 13px; }
+/* imán: etiqueta verde cuando la pieza queda tocando otra */
+.drag-label.snapped { background: #15803d; }
+/* con una pieza abierta, las demás se compactan (más espacio para lo que se edita) */
+.free:has(details.piece[open]) details.piece:not([open]) > summary { padding-top: 4px; padding-bottom: 4px; min-height: 40px; }
+.free:has(details.piece[open]) details.piece:not([open]) > summary small,
+.free:has(details.piece[open]) details.piece:not([open]) > summary .thumb { display: none; }
+.free:has(details.piece[open]) details.piece:not([open]) { opacity: .75; }
+.scope-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.scope-ctl .seg-btn { min-height: 36px; padding: 0 10px; font-size: 13px; }
+@media (min-width: 761px) and (max-width: 1100px) { .shop-visual { height: 46vh; z-index: 3; background: var(--bg); } }
+.choice-list { display: grid; gap: 8px; margin: 8px 0; }
+.choice-list button { min-height: var(--tap); text-align: left; }

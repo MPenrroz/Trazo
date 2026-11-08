@@ -1,11 +1,11 @@
-import { applyDrag, type Field } from '../core/direct';
+import { applyDrag, getScope, setScope, sharedLinks, type Field } from '../core/direct';
 import { evalExpr } from '../core/expr';
 import { advancedRepeat, fieldValue, isNumber, linkedParam, parseRepeat, parseWhen, setRepeat, type Axis } from '../core/simple';
 import { REF_SIDES, STARTERS, addReference, emptyFree, findRef, freeParams, newComponent, placeAtRef, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
-import type { ParamDef, Project, V2 } from '../core/types';
-import { confirmDialog, formDialog, h, parseMm, toast } from '../ui';
+import type { ParamDef, Project, SketchEl, V2 } from '../core/types';
+import { choiceDialog, confirmDialog, formDialog, h, parseMm, toast } from '../ui';
 
 const KIND: Record<Component['kind'], string> = { tablero: 'Tablero CNC', tapiz: 'Tapiz (espuma + tela)', ref: 'Referencia (no se fabrica)' };
 const FIELDS: { k: 'w' | 'h' | 't' | 'x' | 'y' | 'z'; label: string }[] = [
@@ -115,7 +115,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
     const inp = h('input', { type: 'number', inputmode: 'decimal', value: fmtN(val), 'aria-label': label });
     inp.addEventListener('change', () => applyValue(c, f, Number(inp.value.replace(',', '.')) - val));
     return h('label', { class: 'ff num' }, h('span', { class: 'fl' }, label), inp,
-      link ? h('small', { class: 'link-chip', title: `Ligado al parámetro "${link.label}": cambiarlo aquí cambia el parámetro` }, `↔ ${link.label}`)
+      link ? h('small', { class: 'link-chip', title: `Ligado al parámetro "${link.label}"` }, `↔ ${link.label}`)
         : calc ? h('small', { class: 'link-chip calc', title: c[f] }, 'calculada') : null);
   }
 
@@ -183,6 +183,22 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         val === '__adv' ? h('option', { value: '__adv', selected: true, disabled: true }, 'Condición avanzada') : null));
   }
 
+  /** Si la pieza comparte medidas con otras (p. ej. una copia), elegir si un cambio la afecta solo a ella o a todas. */
+  function scopeCtl(c: Component) {
+    const links = sharedLinks(design(store.project), c.id, store.params);
+    if (!links.length) return null;
+    const sc = getScope();
+    const box = h('div', { class: 'scope-ctl' });
+    const others = Math.max(...links.map((l) => l.users)) - 1;
+    const draw = () => box.replaceChildren(
+      h('span', null, `Comparte ${links.map((l) => `«${l.label}»`).join(', ')} con ${others} pieza${others > 1 ? 's' : ''} más. Al cambiar medidas:`),
+      h('div', { class: 'seg' }, ...([['piece', 'Solo esta pieza'], ['shared', 'Todas']] as const).map(([k, l]) =>
+        h('button', { class: `seg-btn ${getScope() === k ? 'on' : ''}`, onclick: () => { setScope(k); draw(); } }, l))));
+    void sc;
+    draw();
+    return box;
+  }
+
   /** Atajo para piezas de un mueble existente: pegarla a la cabecera, los pies o un costado del volumen de referencia. */
   function refPlace(c: Component) {
     const r = findRef(store.project.free);
@@ -222,6 +238,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         h('div', { class: 'orient', role: 'radiogroup', 'aria-label': 'Orientación' },
           ...(Object.keys(ORIENT_ICON) as Component['orient'][]).map((o) => h('button', { class: `orient-btn ${o === c.orient ? 'on' : ''}`, role: 'radio', 'aria-checked': String(o === c.orient), onclick: () => { if (o !== c.orient) set(c, (x) => { x.orient = o; }, true); } },
             h('span', { html: ORIENT_ICON[o][1] }), ORIENT_ICON[o][0]))),
+        scopeCtl(c),
         refPlace(c),
         h('div', { class: 'grid3' }, numField(c, 'w', 'Ancho'), numField(c, 'h', 'Alto'), thicknessField(c)),
         h('div', { class: 'grid3' }, numField(c, 'x', 'X · largo'), numField(c, 'y', 'Y · fondo'), numField(c, 'z', 'Z · altura')),
@@ -383,11 +400,33 @@ export function paramDefsEditor(changed: () => void, remember?: () => void): HTM
  * "Dibujar en la pieza": abre el Boceto con la silueta de la pieza a escala. Si es un rectángulo,
  * se crea su silueta rectangular en el boceto. Lo que se dibuje dentro se vuelve calado.
  */
-export function drawOnPiece(compId: string) {
+export async function drawOnPiece(compId: string) {
   const parts = store.parts();
   const part = parts.find((p) => p.source?.comp === compId);
   const c = design(store.project).components.find((x) => x.id === compId);
   if (!c || !part) return;
+  // silueta compartida con otras piezas (p. ej. una copia): ¿editarla para todas o separar esta?
+  const sharing = c.shape !== 'rect' ? design(store.project).components.filter((x) => x.id !== c.id && x.shape === c.shape) : [];
+  if (sharing.length && store.shapes[c.shape]) {
+    const ch = await choiceDialog(`La forma de «${c.name}» también la usa${sharing.length > 1 ? 'n' : ''} ${sharing.map((x) => `«${x.name}»`).join(', ')}.`, [['copy', 'Solo esta pieza (hacer una copia de la forma)'], ['shared', 'Editarla para todas']]);
+    if (!ch) return;
+    if (ch === 'copy') {
+      store.update((p) => {
+        const src = p.sketch.elements.find((e) => e.id === c.shape);
+        if (!src || src.kind === 'dim' || src.kind === 'free') return;
+        const pts: V2[] = p.sketch.elements.flatMap((e) => (e.kind === 'circle' ? [e.c] : e.kind === 'dim' ? [e.a, e.b] : e.pts));
+        const all = bounds2(pts), own = bounds2(src.kind === 'circle' ? [[src.c[0] - src.r, src.c[1] - src.r], [src.c[0] + src.r, src.c[1] + src.r]] : src.pts);
+        const dx = all.x1 + 120 - own.x0;
+        const id = uid('sil-');
+        // la forma y sus calados (lo que está dentro de ella) se copian a la derecha
+        const inner = p.sketch.elements.filter((e) => e.id !== src.id && (e.kind === 'poly' || e.kind === 'circle') && store.shapes[c.shape] && (e.kind === 'circle' ? [e.c] : e.pts).every(([x, y]) => x >= own.x0 && x <= own.x1 && y >= own.y0 && y <= own.y1));
+        const mv = <T extends SketchEl>(e: T, nid: string): T => (e.kind === 'circle' ? { ...e, id: nid, c: [e.c[0] + dx, e.c[1]] } : e.kind === 'poly' ? { ...e, id: nid, pts: e.pts.map(([x, y]) => [x + dx, y] as V2) } : e) as T;
+        p.sketch.elements.push(mv({ ...src, name: `${c.name}` } as SketchEl, id), ...inner.map((e) => mv(e, uid('s'))));
+        const comp = design(p).components.find((x) => x.id === compId)!;
+        comp.shape = id;
+      }, 'free');
+    }
+  }
   if (c.shape === 'rect' || !store.shapes[c.shape]) {
     const b = bounds2(part.profile);
     store.update((p) => {

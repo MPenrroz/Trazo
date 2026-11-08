@@ -53,6 +53,13 @@ export function shopView(root: HTMLElement, query: URLSearchParams) {
       return { parts, a };
     };
 
+    // al cambiar medidas el producto crece desde un lado fijo (elige el cliente; por defecto desde la izquierda)
+    const ANCHORS: ['start' | 'center' | 'end', string][] = [['start', '⇤ Izquierda'], ['center', '↔ Centro'], ['end', 'Derecha ⇥']];
+    let anchor: 'start' | 'center' | 'end' = 'start';
+    const anchorCtl = h('div', { class: 'anchor-ctl', role: 'radiogroup', 'aria-label': 'Crece desde' });
+    const renderAnchor = () => anchorCtl.replaceChildren(h('span', null, 'Crece desde'), ...ANCHORS.map(([k, l]) => h('button', { class: `seg-btn ${k === anchor ? 'on' : ''}`, role: 'radio', 'aria-checked': String(k === anchor), onclick: () => { anchor = k; viewer?.setAnchor(k); renderAnchor(); } }, l)));
+    renderAnchor();
+
     const exposed = spec.params.filter((d) => d.exposed);
     const controls = h('div', { class: 'shop-params' }, ...exposed.map((d) => paramControl(d, values[d.key], (v) => { values = resolveValues(spec.params, { ...values, [d.key]: v }); update(); })));
 
@@ -80,7 +87,7 @@ export function shopView(root: HTMLElement, query: URLSearchParams) {
     box.replaceChildren(
       h('div', { class: 'shop-hero' },
         h('div', { class: 'shop-visual' },
-          h('div', { class: 'viewer-wrap' }, viewerEl),
+          h('div', { class: 'viewer-wrap' }, viewerEl, anchorCtl),
           spec.hero ? h('img', { class: 'hero-thumb', src: spec.hero, alt: '' }) : null),
         h('div', { class: 'shop-info' },
           h('small', { class: 'eyebrow' }, 'Diseño configurable'),
@@ -94,7 +101,7 @@ export function shopView(root: HTMLElement, query: URLSearchParams) {
           !id ? h('div', { class: 'publish' },
             h('p', { class: 'muted' }, 'Vista previa del proyecto actual. Para publicarlo: descarga la especificación, súbela al repositorio en public/productos/ y comparte #/tienda?producto=<nombre>.'),
             h('button', { class: 'ghost', onclick: () => shareOrDownload(JSON.stringify(buildSpec(false, true), null, 2), `${slug(spec.name)}.json`, 'application/json') }, 'Descargar especificación para publicar')) : null)));
-    requestAnimationFrame(() => { if (disposed) return; viewer = new Viewer(viewerEl); update(true); });
+    requestAnimationFrame(() => { if (disposed) return; viewer = new Viewer(viewerEl); viewer.anchor = anchor; update(true); });
   }).catch((e) => box.replaceChildren(h('p', { class: 'chk error' }, String(e.message ?? e))));
 
   return () => { disposed = true; viewer?.dispose(); };
