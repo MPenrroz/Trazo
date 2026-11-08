@@ -1,4 +1,5 @@
-import type { ParamValues, Project } from '../core/types';
+import { hasParamLinks } from '../core/constraints';
+import type { ParamValues, Project, SketchDoc } from '../core/types';
 import { store } from '../core/store';
 import type { FreeDesign, Shape } from '../core/free';
 
@@ -25,6 +26,8 @@ export interface ProductSpec {
   /** Diseño libre + formas del boceto ya normalizadas (para regenerar en la tienda y en Rhino). */
   free?: FreeDesign;
   shapes?: Record<string, Shape>;
+  /** Boceto con cotas ligadas a parámetros: la tienda recalcula las formas con los valores del cliente. */
+  cad?: Pick<SketchDoc, 'elements' | 'constraints' | 'mmPerPx' | 'calibrated' | 'underlayOpacity'>;
 }
 
 export function buildSpec(withParts = false, withHero = true): ProductSpec {
@@ -37,5 +40,8 @@ export function buildSpec(withParts = false, withHero = true): ProductSpec {
     parts: withParts ? store.parts() : undefined,
     free: p.template === 'libre' ? p.free : undefined,
     shapes: p.template === 'libre' ? store.shapes : undefined,
+    cad: p.template === 'libre' && hasParamLinks(p.sketch)
+      ? { elements: p.sketch.elements.filter((e) => e.kind === 'poly' || e.kind === 'circle'), constraints: p.sketch.constraints, mmPerPx: p.sketch.mmPerPx, calibrated: p.sketch.calibrated, underlayOpacity: 1 }
+      : undefined,
   };
 }

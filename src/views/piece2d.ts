@@ -8,6 +8,8 @@ import { ghosts, isRealScale, pieceMap, realScaleElements, toPx, type PieceMap }
 import { store } from '../core/store';
 import type { Part, SketchEl, V2 } from '../core/types';
 import { SketchEditor } from '../sketch/editor';
+import { cadBar } from '../sketch/cadbar';
+import { hasParamLinks, solve } from '../core/constraints';
 import { h, toast } from '../ui';
 import { forkShape } from './free-editor';
 
@@ -53,8 +55,13 @@ export function piece2d(hooks: Piece2DHooks): Piece2D {
     notify: (m) => toast(m),
     ghosts: () => ghostPx,
     scope: () => (shapeId ? new Set([shapeId, ...shapeChildren(store.project.sketch, shapeId), ...created]) : new Set()),
+    values: () => store.values,
+    selection: () => cad.update(),
+    setSegment: () => cad.update(),
     live: () => { const r = sizeChange(); if (r) hooks.preview(r.design, r.values); else hooks.preview(store.project.free!, store.project.values); },
   });
+  const cad = cadBar(editor, () => hooks.changed());
+  stage.append(cad.el);
   editor.showUnderlay = false;
   editor.forceMm = true;
   editor.showProfile = false;
@@ -75,16 +82,23 @@ export function piece2d(hooks: Piece2DHooks): Piece2D {
     if (Math.abs(dw) < 0.5 && Math.abs(dh) < 0.5 && Math.abs(left) < 0.5 && Math.abs(bottom) < 0.5) return null;
     const ax = AXES[c.orient];
     const ops: DragOp[] = [];
-    if (Math.abs(dw) >= 0.5) ops.push({ field: 'w', delta: dw });
+    // "tamaño desde el dibujo": la medida ya la da el dibujo; solo se corrige la posición
+    const fixed = c.fit === 'sketch';
+    if (Math.abs(dw) >= 0.5 && !fixed) ops.push({ field: 'w', delta: dw });
     if (Math.abs(left) >= 0.5) ops.push({ field: ax.u, delta: r(left) });
-    if (Math.abs(dh) >= 0.5) ops.push({ field: 'h', delta: dh });
+    if (Math.abs(dh) >= 0.5 && !fixed) ops.push({ field: 'h', delta: dh });
+    if (!ops.length) return null;
     if (Math.abs(bottom) >= 0.5) ops.push({ field: ax.v, delta: -r(bottom) });
     return applyDrag(store.project.free, store.project.values, store.params, c.id, ops, false, { fine: true });
   }
 
   let map: PieceMap | null = null;
   /** Tras un cambio en el dibujo: ajustar medidas de la pieza si el contorno cambió de tamaño, y refrescar. */
+  /** El último cambio vino del propio 2D (no reencuadrar para no mover la vista bajo el lápiz). */
+  let selfChange = false;
+  let lastSize = '';
   function afterSketchChange(save: boolean) {
+    selfChange = true;
     const r = save ? sizeChange() : null;
     if (r) {
       hooks.remember();
@@ -96,6 +110,8 @@ export function piece2d(hooks: Piece2DHooks): Piece2D {
 
   /** Lleva la silueta a escala real si hace falta, calcula guías y encuadra. */
   function sync(fit: boolean) {
+    // cotas ligadas a parámetros: el dibujo toma los valores actuales (sin registrar un cambio)
+    if (hasParamLinks(store.project.sketch)) solve(store.project.sketch, store.values);
     const c = comp();
     const p = partOf();
     if (!c || !p || !shapeId) return;
@@ -104,6 +120,10 @@ export function piece2d(hooks: Piece2DHooks): Piece2D {
       if (els) store.update((x) => { for (const e of els) { const i = x.sketch.elements.findIndex((y) => y.id === e.id); if (i >= 0) x.sketch.elements[i] = e; } }, 'sketch');
       fit = true;
     }
+    // cambio de tamaño que viene de afuera (3D, Valores, cotas ligadas): reencuadrar
+    const pb = bounds2(p.profile), size = `${Math.round(pb.w)}x${Math.round(pb.h)}`;
+    if (lastSize && size !== lastSize && !selfChange) fit = true;
+    lastSize = size; selfChange = false;
     map = pieceMap(store.project.sketch, shapeId, p);
     const parts = store.parts();
     ghostPx = map ? ghosts(p, parts).map((g) => ({ ...g, pts: g.pts.map((q) => toPx(map!, q)) })) : [];
@@ -172,7 +192,7 @@ export function piece2d(hooks: Piece2DHooks): Piece2D {
 
   return {
     el, show,
-    refresh: () => { if (shapeId && comp()) { sync(false); renderHead(); } else if (compId) show(compId); },
+    refresh: () => { if (shapeId && comp()) { sync(false); renderHead(); cad.update(); } else if (compId) show(compId); },
     destroy: () => editor.destroy(),
   };
 }

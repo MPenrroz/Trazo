@@ -27,6 +27,11 @@ export interface Component {
   holes: boolean;
   /** tablero = se fabrica en CNC · tapiz = se cotiza por m² · ref = contexto (cama existente, muro…), no se fabrica. */
   kind: 'tablero' | 'tapiz' | 'ref';
+  /**
+   * Con silueta: 'stretch' (por defecto) la estira a ancho × alto; 'sketch' usa el tamaño real del dibujo
+   * (mm del boceto), así las cotas del dibujo son medidas reales de la pieza.
+   */
+  fit?: 'stretch' | 'sketch';
 }
 
 export interface FreeDesign { params: ParamDef[]; components: Component[] }
@@ -144,7 +149,7 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
     if (n > 300) { errors.push(`${c.name}: ${n} copias es demasiado (máx. 300)`); continue; }
     for (let i = 0; i < n; i++) {
       const s = { ...scope, i, n };
-      const [w, h, t, x, y, z] = (['w', 'h', 't', 'x', 'y', 'z'] as const).map((f) => ev({ w: 'Ancho', h: 'Alto', t: 'Espesor', x: 'X', y: 'Y', z: 'Z' }[f], c[f], s));
+      let [w, h, t, x, y, z] = (['w', 'h', 't', 'x', 'y', 'z'] as const).map((f) => ev({ w: 'Ancho', h: 'Alto', t: 'Espesor', x: 'X', y: 'Y', z: 'Z' }[f], c[f], s));
       if ([w, h, t, x, y, z].some((v) => !Number.isFinite(v))) break;
       if (w <= 0 || h <= 0 || t <= 0) { errors.push(`${c.name}: ancho, alto y espesor deben ser mayores que 0 (${Math.round(w)} × ${Math.round(h)} × ${Math.round(t)})`); break; }
       let outline: V2[] = [[0, 0], [w, 0], [w, h], [0, h]], holes: V2[][] = [];
@@ -153,6 +158,7 @@ export function buildFree(values: ParamValues, design: FreeDesign | undefined, s
         const sh = shapes[c.shape];
         if (!sh) { if (i === 0) errors.push(`${c.name}: la forma del boceto ya no existe; se usa un rectángulo`); }
         else {
+          if (c.fit === 'sketch' && sh.size[0] > 0 && sh.size[1] > 0) { w = sh.size[0]; h = sh.size[1]; }
           outline = sh.outline.map(([u, v]) => [u * w, v * h]);
           // los calados no se deforman: se ubican estirados con la silueta, pero conservan su proporción
           // (una ventana redonda sigue redonda aunque el respaldo cambie de alto)

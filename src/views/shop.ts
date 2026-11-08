@@ -1,3 +1,6 @@
+import { solvedCopy } from '../core/constraints';
+import { shapesFromSketch } from '../core/free';
+import type { SketchDoc } from '../core/types';
 import { analyse } from '../core/analysis';
 import { resolveValues } from '../core/params';
 import { getTemplate } from '../core/templates';
@@ -9,7 +12,9 @@ import { h, money, paramControl, toast } from '../ui';
 import { Viewer } from '../viewer';
 
 export function partsFromSpec(spec: ProductSpec, values: ParamValues): Part[] {
-  return getTemplate(spec.template).build(values, { material: spec.materialId, profile: spec.profile, free: spec.free, shapes: spec.shapes });
+  // cotas ligadas a parámetros: las formas se recalculan con los valores elegidos por el cliente
+  const shapes = spec.cad ? shapesFromSketch(solvedCopy(spec.cad as SketchDoc, values)) : spec.shapes;
+  return getTemplate(spec.template).build(values, { material: spec.materialId, profile: spec.profile, free: spec.free, shapes });
 }
 
 /**

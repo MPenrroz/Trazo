@@ -3,9 +3,10 @@ import { store } from '../core/store';
 import type { SketchEl } from '../core/types';
 import { download, slug } from '../export/download';
 import { sketchDxf } from '../export/dxf';
+import { cadBar } from '../sketch/cadbar';
 import { SketchEditor, type Tool } from '../sketch/editor';
 import { profileFromSketch } from '../sketch/fit';
-import { elPoints, mirrorEl, stretchSegment, translateEl } from '../sketch/ops';
+import { elPoints, mirrorEl, translateEl } from '../sketch/ops';
 import { nextStep } from '../steps';
 import { ask, confirmDialog, formDialog, h, parseMm, pickFiles, readImage, toast } from '../ui';
 
@@ -55,25 +56,18 @@ export function sketchView(root: HTMLElement, q: URLSearchParams = new URLSearch
     firstStroke: () => {
       if (!store.project.sketch.calibrated) toast('Consejo: indica una medida conocida con 📏 Escala o con una Cota para que todo quede en mm.');
     },
-    selection: () => renderSel(),
+    selection: () => { renderSel(); cad.update(); },
     protectedIds: () => new Set((store.project.free?.components ?? []).map((c) => c.shape).filter((x) => x !== 'rect')),
     notify: (m) => toast(m),
-    setSegment: async (id, i) => {
-      const sk = store.project.sketch;
-      const e = sk.elements.find((x) => x.id === id);
-      if (!e || e.kind !== 'poly') return;
-      const a = e.pts[i], b = e.pts[(i + 1) % e.pts.length];
-      const cur = d2(a, b) * sk.mmPerPx;
-      const v = await askMm(sk.calibrated ? 'Largo de este lado (mm):' : 'Largo de este lado (px; calibra la escala para trabajar en mm):', Math.round(cur));
-      if (!v) return;
-      editor.apply((d) => {
-        const x = d.elements.find((y) => y.id === id);
-        if (x?.kind === 'poly') x.pts = stretchSegment(x.pts, i, v / d.mmPerPx, x.closed);
-      }, 'Medida de lado');
-    },
+    setSegment: () => cad.update(),
+    values: () => store.values,
   });
 
   editor.showProfile = tpl === 'costillas';
+  // líneas técnicas: restricciones y cotas del lado o círculo seleccionado
+  const cad = cadBar(editor, () => updateStatus());
+  // al abrir: las cotas ligadas a parámetros toman los valores actuales del producto
+  editor.resolveNow();
 
   // ---------------------------------------------------------------- "Dibujar en la pieza": modo enfocado
   const focusComp = q.get('pieza') ? store.project.free?.components.find((c) => c.id === q.get('pieza')) : undefined;
@@ -201,7 +195,7 @@ export function sketchView(root: HTMLElement, q: URLSearchParams = new URLSearch
       h('button', { class: 'tool', onclick: () => editor.fit(), title: 'Encuadrar' }, h('span', { class: 'ico' }, '⤢'), h('span', { class: 'tl' }, 'Encuadrar')),
       nextStep('boceto', store.project.sketch.elements.length && !store.project.sketch.calibrated ? 'Aún no calibras la escala' : undefined, true)),
     notice, focusBar,
-    h('div', { class: 'sketch-body' }, h('div', { class: 'stage-wrap' }, stage, selBar),
+    h('div', { class: 'sketch-body' }, h('div', { class: 'stage-wrap' }, stage, selBar, cad.el),
       h('aside', { class: 'side' },
         h('h4', null, 'Siluetas'),
         h('p', { class: 'muted' }, howTo),

@@ -380,6 +380,9 @@ def build_libre(values, spec, errors=None):
                 outline, holes, curves = rect(w, h), [], None
                 sh = shapes.get(c["shape"]) if c["shape"] != "rect" else None
                 if sh:
+                    # "tamaño desde el dibujo": la pieza mide lo que mide la silueta (cotas en mm reales)
+                    if c.get("fit") == "sketch" and sh.get("size") and sh["size"][0] > 0 and sh["size"][1] > 0:
+                        w, h = float(sh["size"][0]), float(sh["size"][1])
                     outline = [(u * w, v * h) for u, v in sh["outline"]]
                     if c.get("holes", True):
                         holes = [_keep_hole(hh, w, h, sh.get("size")) for hh in sh["holes"]]

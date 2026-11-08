@@ -119,6 +119,15 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         : calc ? h('small', { class: 'link-chip calc', title: c[f] }, 'calculada') : null);
   }
 
+  /** Con "tamaño desde el dibujo" el ancho/alto no se edita aquí: lo dan el dibujo y sus cotas. */
+  function fitSize(c: Component, f: 'w' | 'h', label: string) {
+    const sh = c.fit === 'sketch' && c.shape !== 'rect' ? store.shapes[c.shape] : undefined;
+    if (!sh) return null;
+    const v = f === 'w' ? sh.size[0] : sh.size[1];
+    return h('label', { class: 'ff num' }, h('span', { class: 'fl' }, label), h('input', { value: fmtN(v), disabled: true, 'aria-label': label }),
+      h('small', { class: 'link-chip calc', title: 'Se cambia en el dibujo (2D o Boceto) y sus cotas' }, 'del dibujo'));
+  }
+
   function thicknessField(c: Component) {
     if (c.kind !== 'tablero') return numField(c, 't', 'Espesor');
     const avail = store.material.thicknesses;
@@ -240,7 +249,9 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
             h('span', { html: ORIENT_ICON[o][1] }), ORIENT_ICON[o][0]))),
         scopeCtl(c),
         refPlace(c),
-        h('div', { class: 'grid3' }, numField(c, 'w', 'Ancho'), numField(c, 'h', 'Alto'), thicknessField(c)),
+        c.shape !== 'rect' && shapes[c.shape] ? h('label', { class: 'ff' }, h('span', { class: 'fl' }, 'Tamaño'),
+          sel(c.fit ?? 'stretch', { stretch: 'Estirar la silueta a ancho × alto', sketch: 'Desde el dibujo (cotas en mm reales)' }, (v) => set(c, (x) => { x.fit = v === 'sketch' ? 'sketch' : undefined; }, true))) : null,
+        h('div', { class: 'grid3' }, fitSize(c, 'w', 'Ancho') ?? numField(c, 'w', 'Ancho'), fitSize(c, 'h', 'Alto') ?? numField(c, 'h', 'Alto'), thicknessField(c)),
         h('div', { class: 'grid3' }, numField(c, 'x', 'X · largo'), numField(c, 'y', 'Y · fondo'), numField(c, 'z', 'Z · altura')),
         h('p', { class: 'muted small' }, 'Medidas en mm. La posición es la esquina más cercana al origen; también puedes arrastrar la pieza en el 3D.'),
         repeatBlock(c),

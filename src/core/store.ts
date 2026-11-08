@@ -3,7 +3,8 @@ import { uid } from './geom';
 import { resolveParams, resolveValues } from './params';
 import { getTemplate } from './templates';
 import { emptyFree, freeParams, shapesFromSketch } from './free';
-import type { Part, Project } from './types';
+import { solvedCopy } from './constraints';
+import type { ParamValues, Part, Project } from './types';
 
 const DB = 'trazo', STORE = 'projects', CURRENT = 'trazo:current';
 
@@ -111,7 +112,9 @@ class Store {
     return resolveParams(withT, this.project.rules);
   }
   /** Formas cerradas del boceto disponibles como piezas (diseño libre). */
-  get shapes() { return shapesFromSketch(this.project.sketch); }
+  get shapes() { return this.shapesFor(this.values); }
+  /** Formas del boceto con sus cotas resueltas para estos valores (las cotas ligadas a parámetros cambian la forma). */
+  shapesFor(values: ParamValues) { return shapesFromSketch(solvedCopy(this.project.sketch, values)); }
   /** Errores de fórmulas de la última construcción. */
   buildErrors: string[] = [];
   get values() { return resolveValues(this.params, this.project.values); }
@@ -119,7 +122,7 @@ class Store {
   get material() { return this.project.fab.materials.find((m) => m.id === this.project.materialId) ?? this.project.fab.materials[0]; }
   parts(values = this.values): Part[] {
     const errors: string[] = [];
-    const parts = this.template.build(values, { material: this.material.id, profile: this.project.profile, free: this.project.free, shapes: this.shapes, errors });
+    const parts = this.template.build(values, { material: this.material.id, profile: this.project.profile, free: this.project.free, shapes: this.shapesFor(values), errors });
     this.buildErrors = errors;
     return parts;
   }

@@ -1,4 +1,6 @@
 import { sampleLoop } from '../core/curve';
+import { segAnchor, solve, suggest, targetMm, validConstraints, type Constraint } from '../core/constraints';
+import type { ParamValues } from '../core/types';
 import { d2, round, uid } from '../core/geom';
 import type { SketchDoc, SketchEl, V2 } from '../core/types';
 import { distToEl, fitStroke, mergeCollinear, pointInPoly, snapPoints } from './fit';
@@ -22,7 +24,7 @@ export interface EditorHooks {
   selection?(el: SketchEl | null): void;
   /** Pide un largo en mm (tocar un lado o una cota). Devuelve null si se cancela. */
   askLength?(title: string, current: number): Promise<number | null>;
-  /** Tocar un lado para escribir su medida (lo resuelve la vista con ops.stretchSegment). */
+  /** Se tocó un lado de la forma seleccionada (o null al soltarlo): la vista muestra las restricciones del lado. */
   setSegment?(id: string, index: number): void;
   /** Siluetas usadas por piezas: la goma no las borra (se borran desde Editar, con aviso). */
   protectedIds?(): Set<string>;
@@ -34,6 +36,8 @@ export interface EditorHooks {
   scope?(): Set<string> | null;
   /** Durante un arrastre (el documento ya cambió, sin guardar): para actualizar el 3D en vivo. */
   live?(): void;
+  /** Valores del producto (cotas ligadas a parámetros). */
+  values?(): ParamValues;
 }
 
 type EditDrag = { mode: 'vertex' | 'move' | 'radius' | 'axis'; id: string; index: number; start: V2; before: SketchEl[]; axis0: number; moved: boolean; hitSeg: number };
@@ -70,6 +74,10 @@ export class SketchEditor {
   private panStart: { p: V2; view: { x: number; y: number; s: number } } | null = null;
   /** Elemento seleccionado con la herramienta Editar. */
   selected: string | null = null;
+  /** Lado seleccionado (para restricciones y cotas). */
+  selSeg: { id: string; i: number } | null = null;
+  /** Mostrar restricciones y cotas. */
+  showConstraints = true;
   private drag: EditDrag | null = null;
   private warnedProtected = false;
   /** Mostrar la imagen de calco (en la vista 2D de pieza se oculta). */
@@ -309,6 +317,7 @@ export class SketchEditor {
 
   select(id: string | null) {
     this.selected = id;
+    if (!id || this.selSeg?.id !== id) this.selSeg = null;
     this.hooks.selection?.(id ? this.hooks.doc().elements.find((e) => e.id === id) ?? null : null);
     this.render();
   }
@@ -358,6 +367,10 @@ export class SketchEditor {
       const p: V2 = near ? [near[0], near[1]] : [w[0], w[1]];
       if (orig.kind === 'dim') doc.elements[i] = g.index === 0 ? { ...orig, a: p } : { ...orig, b: p };
       else if (orig.kind === 'poly') { const pts = orig.pts.map((q) => [q[0], q[1]] as V2); pts[g.index] = p; doc.elements[i] = { ...orig, pts }; }
+      // restricciones: el punto arrastrado queda fijo y el resto del dibujo se acomoda
+      if (doc.constraints?.length) {
+        solve(doc, this.hooks.values?.(), new Set([`${g.id}:${g.index}`]));
+      }
     }
     this.render();
     if (this.hooks.live) { cancelAnimationFrame(this.liveRaf); this.liveRaf = requestAnimationFrame(() => this.hooks.live?.()); }
@@ -386,8 +399,86 @@ export class SketchEditor {
       this.render();
       return;
     }
-    if (g.hitSeg >= 0 && this.selected === el.id) { this.hooks.setSegment?.(el.id, g.hitSeg); return; }
+    if (g.hitSeg >= 0 && this.selected === el.id) { this.selSeg = { id: el.id, i: g.hitSeg }; this.render(); this.hooks.setSegment?.(el.id, g.hitSeg); return; }
     this.select(el.id);
+  }
+
+  // ---------------------------------------------------------------- restricciones y cotas
+  /** Agrega restricciones (reemplaza las del mismo tipo en ese lado) y resuelve. */
+  addConstraints(cs: Omit<Constraint, 'id'>[], reason = 'Restricción') {
+    this.commit((d) => {
+      let list = validConstraints(d);
+      for (const c of cs) {
+        const clash = (x: Constraint) => x.el === c.el && x.seg === c.seg && (x.kind === c.kind || (c.kind === 'h' && x.kind === 'v') || (c.kind === 'v' && x.kind === 'h'));
+        list = list.filter((x) => !clash(x));
+        list.push({ ...c, id: uid('k') });
+      }
+      d.constraints = list;
+      solve(d, this.hooks.values?.());
+    }, reason);
+    this.render();
+  }
+  /** Quita las restricciones de un lado (o de un círculo). */
+  removeConstraints(el: string, seg?: number) {
+    this.commit((d) => { d.constraints = validConstraints(d).filter((c) => !(c.el === el && (seg === undefined || c.seg === seg))); }, 'Quitar restricciones');
+    this.render();
+  }
+  /** Restricciones horizontales/verticales para los lados que ya están derechos. */
+  autoConstrain(el: string): number {
+    const d = this.hooks.doc(), e = d.elements.find((x) => x.id === el);
+    const cs = e ? suggest(e, validConstraints(d)) : [];
+    if (cs.length) this.addConstraints(cs, 'Auto-restringir');
+    return cs.length;
+  }
+  /** Re-resuelve con los valores actuales (p. ej. cambió un parámetro ligado a una cota). */
+  resolveNow() {
+    const d = this.hooks.doc();
+    if (!d.constraints?.length) return;
+    this.hooks.change((x) => { solve(x, this.hooks.values?.()); }, 'Cotas');
+    this.render();
+  }
+
+  private drawConstraints(doc: SketchDoc, px: number) {
+    if (!this.showConstraints) return;
+    const { ctx } = this;
+    const vals = this.hooks.values?.();
+    const badge = (p: V2, txt: string, color: string) => {
+      ctx.font = `600 ${11 * px}px system-ui`;
+      const w = ctx.measureText(txt).width + 8 * px, hh = 15 * px;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = color; ctx.lineWidth = 1 * px;
+      ctx.beginPath(); ctx.roundRect(p[0] - w / 2, p[1] - hh / 2, w, hh, 4 * px); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = color; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(txt, p[0], p[1] + 0.5 * px);
+      ctx.textAlign = 'start'; ctx.textBaseline = 'alphabetic';
+    };
+    const byEl = new Map(doc.elements.map((e) => [e.id, e]));
+    for (const c of validConstraints(doc)) {
+      const e = byEl.get(c.el)!;
+      if (!this.inScope(e)) continue;
+      const color = c.param ? '#2563eb' : '#7c3aed';
+      const mm = targetMm(c, vals);
+      const txt = (v: number | null) => `${c.param ? `${c.param} = ` : ''}${v === null ? '?' : Math.round(v * 10) / 10}`;
+      if (c.kind === 'dia' && e.kind === 'circle') { badge([e.c[0], e.c[1] + e.r + 12 * px], `Ø ${txt(mm)}`, color); continue; }
+      const an0 = segAnchor(e, c.seg!);
+      if (!an0) continue;
+      // normal hacia afuera de la forma (la cota va por fuera, el símbolo H/V por dentro)
+      let an = an0;
+      if (e.kind === 'poly' && e.closed) {
+        const cx = e.pts.reduce((t, q) => t + q[0], 0) / e.pts.length, cy = e.pts.reduce((t, q) => t + q[1], 0) / e.pts.length;
+        if ((an0.mid[0] - cx) * an0.nrm[0] + (an0.mid[1] - cy) * an0.nrm[1] < 0) an = { ...an0, nrm: [-an0.nrm[0], -an0.nrm[1]] };
+      }
+      if (c.kind === 'len') {
+        // línea de cota desplazada hacia afuera
+        const o = 16 * px, [nx, ny] = an.nrm;
+        const a2: V2 = [an.a[0] + nx * o, an.a[1] + ny * o], b2: V2 = [an.b[0] + nx * o, an.b[1] + ny * o];
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 1 * px;
+        ctx.beginPath(); ctx.moveTo(...an.a); ctx.lineTo(...a2); ctx.moveTo(...an.b); ctx.lineTo(...b2); ctx.moveTo(...a2); ctx.lineTo(...b2); ctx.stroke(); ctx.restore();
+        badge([(a2[0] + b2[0]) / 2, (a2[1] + b2[1]) / 2], txt(mm), color);
+      } else badge([an.mid[0] - an.nrm[0] * 12 * px, an.mid[1] - an.nrm[1] * 12 * px], c.kind === 'h' ? 'H' : 'V', color);
+    }
+    // lado seleccionado
+    const ss = this.selSeg && byEl.get(this.selSeg.id);
+    const an = ss && segAnchor(ss, this.selSeg!.i);
+    if (an) { ctx.save(); ctx.strokeStyle = '#2563eb'; ctx.lineWidth = 5 * px; ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.moveTo(...an.a); ctx.lineTo(...an.b); ctx.stroke(); ctx.restore(); }
   }
 
   /** Aplica un cambio de geometría con deshacer (usado por la vista: medida de lado, reflejar, duplicar). */
@@ -477,6 +568,7 @@ export class SketchEditor {
     }
     const sel = doc.elements.find((e) => e.id === this.selected);
     if (sel && this.tool === 'edit') this.drawSelection(sel, px);
+    this.drawConstraints(doc, px);
     if (this.stroke && this.stroke.length > 1) {
       ctx.strokeStyle = this.tool === 'scale' ? '#d97706' : this.tool === 'dim' ? '#2563eb' : '#1f2937';
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -561,9 +653,11 @@ export class SketchEditor {
       return;
     }
     const n = e.closed ? e.pts.length : e.pts.length - 1;
+    // los lados con cota ya muestran su medida en la línea de cota
+    const dimmed = new Set((doc.constraints ?? []).filter((c) => c.el === e.id && c.kind === 'len').map((c) => c.seg));
     for (let i = 0; i < n; i++) {
       const a = e.pts[i], b = e.pts[(i + 1) % e.pts.length];
-      if (d2(a, b) * this.view.s < 40) continue;
+      if (d2(a, b) * this.view.s < 40 || (this.showConstraints && dimmed.has(i))) continue;
       this.label([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], this.fmt(d2(a, b), doc), px, '#6b7280');
     }
     for (const p of e.pts) { ctx.fillStyle = '#111827'; ctx.fillRect(p[0] - 1.5 * px, p[1] - 1.5 * px, 3 * px, 3 * px); }

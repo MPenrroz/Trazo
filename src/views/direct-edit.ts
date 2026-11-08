@@ -121,10 +121,13 @@ export class DirectEdit {
     // estirar: ±u (ancho) y ±v (alto)
     const size = (pos: THREE.Vector3, axis: THREE.Vector3, field: Field, posField: Field, side: 1 | -1, sz: number) =>
       this.addHandle({ base: pos, axis, offset: 0, kind: 'size', field, posField, side, size: sz }, 0xea580c, 'sphere');
-    size(mid(b.x1, (b.y0 + b.y1) / 2), ux, 'w', ax.u, 1, b.w);
-    size(mid(b.x0, (b.y0 + b.y1) / 2), ux, 'w', ax.u, -1, b.w);
-    size(mid((b.x0 + b.x1) / 2, b.y1), vy, 'h', ax.v, 1, b.h);
-    size(mid((b.x0 + b.x1) / 2, b.y0), vy, 'h', ax.v, -1, b.h);
+    // "tamaño desde el dibujo": las medidas se cambian en el 2D; aquí solo se mueve
+    if (c.fit !== 'sketch' || c.shape === 'rect') {
+      size(mid(b.x1, (b.y0 + b.y1) / 2), ux, 'w', ax.u, 1, b.w);
+      size(mid(b.x0, (b.y0 + b.y1) / 2), ux, 'w', ax.u, -1, b.w);
+      size(mid((b.x0 + b.x1) / 2, b.y1), vy, 'h', ax.v, 1, b.h);
+      size(mid((b.x0 + b.x1) / 2, b.y0), vy, 'h', ax.v, -1, b.h);
+    }
     // mover: flechas de mundo desde el centro de la pieza
     const center = mid((b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2);
     for (const w of WORLD) this.addHandle({ base: center, axis: new THREE.Vector3(...w.dir), offset: 4.2, kind: 'move', field: w.field }, w.color, 'arrow');

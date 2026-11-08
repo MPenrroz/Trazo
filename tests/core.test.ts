@@ -620,3 +620,70 @@ describe('vista 2D de la pieza (2D | 3D)', () => {
     expect(g.length).toBeGreaterThan(1);
   });
 });
+
+import { solve, solvedCopy, suggest, validConstraints } from '../src/core/constraints';
+
+describe('restricciones y cotas del boceto', () => {
+  const doc = (): SkDoc => ({
+    elements: [{ id: 'p', kind: 'poly', closed: true, pts: [[0, 0], [100, 2], [98, 60], [1, 58]] }, { id: 'c', kind: 'circle', c: [50, 30], r: 10 }],
+    mmPerPx: 2, calibrated: true, underlayOpacity: 1,
+    constraints: [
+      { id: '1', kind: 'h', el: 'p', seg: 0 }, { id: '2', kind: 'v', el: 'p', seg: 1 }, { id: '3', kind: 'h', el: 'p', seg: 2 }, { id: '4', kind: 'v', el: 'p', seg: 3 },
+      { id: '5', kind: 'len', el: 'p', seg: 0, value: 300, param: 'ancho_x' }, { id: '6', kind: 'dia', el: 'c', value: 40 },
+    ],
+  });
+  it('deja el contorno ortogonal y con la medida pedida (en mm)', () => {
+    const d = doc();
+    const err = solve(d, { ancho_x: 300 });
+    expect(err).toBeLessThan(0.01);
+    const p = d.elements[0] as { pts: V2[] };
+    expect(Math.abs(p.pts[0][1] - p.pts[1][1])).toBeLessThan(0.01);
+    expect(Math.abs(p.pts[1][0] - p.pts[2][0])).toBeLessThan(0.01);
+    expect(Math.hypot(p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]) * 2).toBeCloseTo(300, 1);
+    expect((d.elements[1] as { r: number }).r * 2 * 2).toBeCloseTo(40, 5);
+  });
+  it('el punto que arrastra el lápiz queda fijo y el resto se ajusta', () => {
+    const d = doc();
+    solve(d, { ancho_x: 300 });
+    const p = d.elements[0] as { pts: V2[] };
+    p.pts[2] = [p.pts[2][0], 90]; // arrastrar esquina superior derecha hacia abajo (y crece)
+    solve(d, { ancho_x: 300 }, new Set(['p:2']));
+    expect(p.pts[2][1]).toBe(90);
+    expect(Math.abs(p.pts[3][1] - 90)).toBeLessThan(0.01); // el lado opuesto sigue horizontal
+  });
+  it('una cota ligada a un parámetro cambia la forma sin tocar el documento original', () => {
+    const d = doc();
+    const s = solvedCopy(d, { ancho_x: 500 });
+    const p = s.elements[0] as { pts: V2[] };
+    expect(Math.hypot(p.pts[1][0] - p.pts[0][0], p.pts[1][1] - p.pts[0][1]) * 2).toBeCloseTo(500, 1);
+    expect((d.elements[0] as { pts: V2[] }).pts[1]).toEqual([100, 2]);
+  });
+  it('descarta restricciones de formas borradas y sugiere H/V en lados derechos', () => {
+    const d = doc();
+    d.elements = d.elements.filter((e) => e.id !== 'c');
+    expect(validConstraints(d).some((c) => c.el === 'c')).toBe(false);
+    const sq = { id: 'q', kind: 'poly' as const, closed: true, pts: [[0, 0], [10, 0], [10, 10], [0, 10]] as V2[] };
+    expect(suggest(sq, []).map((c) => c.kind)).toEqual(['h', 'v', 'h', 'v']);
+  });
+});
+
+describe('cota ligada a parámetro → pieza en mm reales', () => {
+  it('con "tamaño desde el dibujo" la pieza mide lo que dice la cota', () => {
+    const sk: SkDoc = {
+      elements: [{ id: 's', kind: 'poly', closed: true, pts: [[0, 0], [200, 0], [200, 100], [0, 100]] }],
+      mmPerPx: 2, calibrated: true, underlayOpacity: 1,
+      constraints: [
+        { id: '1', kind: 'h', el: 's', seg: 0 }, { id: '2', kind: 'v', el: 's', seg: 1 }, { id: '3', kind: 'h', el: 's', seg: 2 }, { id: '4', kind: 'v', el: 's', seg: 3 },
+        { id: '5', kind: 'len', el: 's', seg: 0, value: 400, param: 'ancho_tapa' },
+      ],
+    };
+    const design = { params: [{ key: 'ancho_tapa', label: 'Ancho tapa', type: 'number' as const, default: 400, min: 200, max: 900, exposed: true }], components: [newComponent({ shape: 's', fit: 'sketch', w: '999', h: '999' })] };
+    const width = (v: number) => {
+      const shapes = shapesFromSketch(solvedCopy(sk, { ancho_tapa: v }));
+      const p = buildFree({ t: 18, ancho_tapa: v }, design, shapes, 'mdf')[0];
+      return Math.round(Math.max(...p.profile.map((q) => q[0])) - Math.min(...p.profile.map((q) => q[0])));
+    };
+    expect(width(400)).toBe(400);
+    expect(width(650)).toBe(650);
+  });
+});

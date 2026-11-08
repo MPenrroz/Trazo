@@ -116,6 +116,8 @@ export interface SketchDoc {
   profileId?: string;
   /** Eje de simetría vertical (x en px de lienzo). */
   symmetry?: { on: boolean; x: number };
+  /** Restricciones geométricas y cotas (líneas técnicas). Ver core/constraints.ts. */
+  constraints?: import('./constraints').Constraint[];
 }
 
 export interface RefImage { id: string; src: string; caption: string; tag: string }
