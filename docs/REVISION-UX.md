@@ -166,3 +166,11 @@ Arreglos rápidos (S, prioridad A/B) que se pueden hacer en una sola tanda:
 | K2 | Faltó el volumen "objetivo" de la cama existente (nido plaza y media). | **+ Volumen de referencia** (Modelo → Piezas) con largo/ancho/alto en mm, cm o m: crea parámetros `ref_largo`, `ref_ancho`, `ref_alto` para usar en las fórmulas. "Interpretar imagen" pregunta "¿Es para un mueble existente?" y adapta la propuesta a esas medidas. | Hecho |
 | K3 | Tablero de proveedor local con medidas especiales. | Fabricación → Material → **+ Nuevo tablero**: nombre, plancha (p. ej. 1000 × 3000), espesores (22) y precio. El espesor de las piezas ofrece solo los del tablero elegido. | Hecho |
 | K4 | "Dibujar en la pieza" es confuso; se borró el perfil del respaldo. | Modo enfocado: barra "Dibujando en «pieza»" con **Redibujar contorno** (un trazo cerrado reemplaza la forma conservando la pieza) o **Agregar calados**, y **Listo → ver en 3D**. El borrador ya no elimina siluetas en uso por piezas (avisa). | Hecho |
+
+## Prueba en iPad · cama nido (feedback 5)
+
+| # | Problema reportado | Solución | Estado |
+|---|---|---|---|
+| N1 | Un producto nuevo abre en el paso 3. | "Desde cero" abre en **1 · Concepto**; los ejemplos siguen abriendo en el 3D. | Hecho |
+| N2 | Pasar de un paso a otro no es intuitivo. | En iPad todos los pasos muestran su nombre bajo el número; al pie de cada página hay **← paso anterior** y **Siguiente →**. | Hecho |
+| N3 | La imagen de referencia y la posición del mueble existente no calzan (respaldo girado, baranda atravesando la cama). | Tarjeta **Mueble existente** en Concepto (junto a las imágenes), que alimenta "Crear diseño". Reglas explícitas de ubicación para la IA (cabecera/pies "de lado", costados "de frente") y corrección automática de piezas que atraviesan el volumen. En cada pieza: **Ubicar junto a «mueble»** (Cabecera, Pies, Costado frente, Costado fondo, Encima) con fórmulas que siguen sus medidas. Aviso en la revisión si una pieza atraviesa el volumen. | Hecho |

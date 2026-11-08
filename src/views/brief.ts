@@ -1,10 +1,11 @@
 import { uid } from '../core/geom';
 import { store } from '../core/store';
 import { TEMPLATES, getTemplate } from '../core/templates';
-import { STARTERS } from '../core/free';
+import { STARTERS, addReference, emptyFree, findRef, freeParams } from '../core/free';
+import { fieldValue, isNumber } from '../core/simple';
 import { applyStarter, applyTemplate, convertToFree, freeEquivalent, replaceDesign } from './design-change';
 import { getSample, openInterpret } from './interpret';
-import { card, h, pickFiles, readImage, toast } from '../ui';
+import { card, h, parseMm, pickFiles, readImage, toast } from '../ui';
 
 const TAGS = ['Forma', 'Material', 'Uso', 'Detalle', 'Ambiente', 'Unión'];
 
@@ -85,6 +86,51 @@ export function briefView(root: HTMLElement) {
     ];
   };
 
+  /** Mueble existente al que se adapta el diseño: queda como volumen de referencia en el Modelo y lo usa "Crear diseño". */
+  function existingCard() {
+    const r = findRef(p.free);
+    const mm = (f: 'w' | 'h' | 't') => { if (!r) return ''; const v = fieldValue(r.comp, f, store.values); return Number.isFinite(v) ? `${Math.round(v)} mm` : ''; };
+    const name = h('input', { value: r?.name ?? '', placeholder: 'Ej: Cama nido plaza y media' });
+    const L = h('input', { value: mm('w'), inputmode: 'decimal', placeholder: 'Largo (200 cm)', 'aria-label': 'Largo' });
+    const A = h('input', { value: mm('h'), inputmode: 'decimal', placeholder: 'Ancho (106 cm)', 'aria-label': 'Ancho' });
+    const H = h('input', { value: mm('t'), inputmode: 'decimal', placeholder: 'Alto (45 cm)', 'aria-label': 'Alto' });
+    const save = () => {
+      const [l, a, hh] = [L, A, H].map((i) => parseMm(i.value));
+      if (![l, a, hh].every((n) => Number.isFinite(n) && n > 0)) { toast('Escribe largo, ancho y alto (mm, cm o m)', 'err'); return; }
+      if (p.template !== 'libre') { toast('El volumen de referencia es para diseño libre: convierte el diseño en el Modelo 3D.', 'err'); return; }
+      const nm = name.value.trim() || 'Mueble existente';
+      store.update((x) => {
+        const d = x.free ?? (x.free = emptyFree());
+        const cur = findRef(d);
+        if (!cur) {
+          const nd = addReference(d, nm, l, a, hh);
+          // el volumen va primero en la lista de piezas
+          const [ref] = nd.components.splice(nd.components.length - 1, 1);
+          x.free = { params: nd.params, components: [ref, ...nd.components] };
+          for (const q of nd.params.slice(d.params.length)) x.values[q.key] = q.default as number;
+          for (const q of freeParams(x.free)) if (!(q.key in x.values)) x.values[q.key] = q.default;
+          return;
+        }
+        cur.comp.name = `${nm} (referencia)`;
+        // medidas: si la fórmula es un parámetro se cambia su valor (y su rango); si es un número, el número
+        ([['w', l], ['h', a], ['t', hh]] as const).forEach(([f, v]) => {
+          const src = cur.comp[f].trim();
+          const def = d.params.find((q) => q.key === src);
+          if (def && def.type === 'number') { def.default = Math.round(v); def.min = Math.min(def.min ?? v, Math.round(v * 0.5)); def.max = Math.max(def.max ?? v, Math.round(v * 1.5)); x.values[src] = Math.round(v); }
+          else if (isNumber(src) || !def) cur.comp[f] = String(Math.round(v));
+        });
+      }, 'free');
+      toast(r ? 'Medidas del mueble existente actualizadas' : `«${nm}» agregado como volumen de referencia: se ve en el Modelo 3D y "Crear diseño" adapta las piezas a él.`);
+      out.replaceWith(existingCard());
+    };
+    const out = card('Mueble existente (opcional)',
+      h('p', { class: 'muted' }, '¿Diseñas para algo que ya existe, como tu cama nido? Sus medidas quedan como un volumen de referencia en el 3D (no se fabrica) y el diseño desde imagen se ajusta a él. Largo = eje X, ancho = eje Y (en una cama, el lado corto).'),
+      h('label', { class: 'field' }, 'Nombre', name),
+      h('div', { class: 'grid3' }, L, A, H),
+      h('div', { class: 'row end' }, h('button', { onclick: save }, r ? 'Actualizar medidas' : 'Agregar volumen')));
+    return out;
+  }
+
   root.append(h('div', { class: 'page brief' },
     h('div', { class: 'col' },
       card('Concepto',
@@ -96,7 +142,8 @@ export function briefView(root: HTMLElement) {
       card('Manufactura prevista', methods, h('p', { class: 'muted' }, 'Define qué restricciones se verifican (tamaño de cama, espesor máximo, herramienta). Ajustable en Fabricación.')),
       card('Notas de diseño', h('textarea', { rows: 4, placeholder: 'Uniones, acabados, dudas a resolver en Rhino…', oninput: (e: Event) => set('notes', (e.target as HTMLTextAreaElement).value) }, p.notes))),
     h('div', { class: 'col' },
-      card('Imágenes referenciales', h('p', { class: 'muted' }, 'Arrastra, pega (⌘V) o elige desde Fotos/Archivos. Etiqueta qué tomar de cada una. La primera es la portada de la tienda.'), aiHint, gallery))));
+      card('Imágenes referenciales', h('p', { class: 'muted' }, 'Arrastra, pega (⌘V) o elige desde Fotos/Archivos. Etiqueta qué tomar de cada una. La primera es la portada de la tienda.'), aiHint, gallery),
+      existingCard())));
 
   const onPaste = async (e: ClipboardEvent) => {
     if ((e.target as HTMLElement)?.closest('input,textarea')) return;

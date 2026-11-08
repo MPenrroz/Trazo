@@ -1,7 +1,8 @@
 // "Interpretar imagen": instrucciones para Claude y validación estricta de su propuesta de diseño libre.
 // La respuesta nunca se usa tal cual: se limpia, se acota y se construye con el mismo motor que el resto
 // de la app, informando lo que no se pudo usar.
-import { buildFree, freeParams, newComponent, type Component, type FreeDesign, type Shape } from './free';
+import { buildFree, findRef, freeParams, newComponent, placeAtRef, type Component, type FreeDesign, type RefSide, type Shape } from './free';
+import { bounds3 } from './geom';
 import { uid } from './geom';
 import type { ParamDef, V2 } from './types';
 
@@ -29,7 +30,13 @@ ${ctx.known ? `Medida conocida (úsala para escalar todo): ${ctx.known}` : 'No h
 ${ctx.focus ? `Qué tomar de la imagen: ${ctx.focus}` : ''}
 ${ctx.description ? `Descripción del proyecto: ${ctx.description.slice(0, 800)}` : ''}
 ${ctx.functions?.length ? `Funcionalidades: ${ctx.functions.slice(0, 8).join('; ')}` : ''}
-${ctx.existing ? `EL DISEÑO ES PARA UN OBJETO EXISTENTE: "${ctx.existing.name}" de ${ctx.existing.largo} mm de largo (X) × ${ctx.existing.ancho} mm de ancho (Y) × ${ctx.existing.alto} mm de alto (Z), ubicado desde el origen (0,0,0). Ya existe como volumen de referencia con los parámetros ref_largo, ref_ancho y ref_alto: NO lo agregues a "components" ni a "params"; úsalos en tus fórmulas para que las piezas calcen con él (p. ej. un respaldo de ancho "ref_ancho + 2*t" ubicado en x = "-t").` : 'Si la descripción o las funcionalidades mencionan un mueble u objeto existente con medidas, inclúyelo como pieza kind "ref" con parámetros para esas medidas y adapta el diseño a él.'}
+${ctx.existing ? `EL DISEÑO ES PARA UN OBJETO EXISTENTE: "${ctx.existing.name}" de ${ctx.existing.largo} mm de largo (X) × ${ctx.existing.ancho} mm de ancho (Y) × ${ctx.existing.alto} mm de alto (Z), ubicado desde el origen (0,0,0). Ya existe como volumen de referencia con los parámetros ref_largo, ref_ancho y ref_alto: NO lo agregues a "components" ni a "params"; úsalos en tus fórmulas para que las piezas calcen con él. Ubica cada pieza PEGADA al volumen, nunca atravesándolo:
+  - Cabecera (respaldo): orient "YZ", w "ref_ancho + 2*t", x "-t", y "-t".
+  - Pies (piecera, frente de pies): orient "YZ", w "ref_ancho + 2*t", x "ref_largo", y "-t".
+  - Costado cercano (baranda, faldón frontal): orient "XZ", w "ref_largo" (o una parte), x "0" o mayor, y "-t".
+  - Costado del muro: orient "XZ", w "ref_largo", x "0", y "ref_ancho".
+  - Sobre el volumen: orient "XY", z "ref_alto".
+  En una cama el ancho (ref_ancho, eje Y) es el lado corto: el respaldo NUNCA va "XZ" a lo largo de X. Las alturas (h) de respaldo y barandas se miden desde el piso (z = 0) salvo que estén sobre el volumen.` : 'Si la descripción o las funcionalidades mencionan un mueble u objeto existente con medidas, inclúyelo como pieza kind "ref" con parámetros para esas medidas y adapta el diseño a él.'}
 
 MODELO (respeta exactamente estas reglas):
 - Unidades: milímetros. Ejes: X = largo (izquierda→derecha visto de frente), Y = fondo (frente en Y=0, hacia atrás positivo), Z = alto (piso en Z=0).
@@ -133,7 +140,27 @@ export function sanitizeProposal(raw: unknown, thickness = 18, base: FreeDesign 
   const shapes: Record<string, Shape> = Object.fromEntries(silhouettes.map((s) => [s.id, { outline: s.outline, holes: s.holes, label: s.name, size: [1000, 1000] as V2 }]));
   const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.key === 't' ? thickness : d.default]));
   const errors: string[] = [];
-  buildFree(values, design, shapes, 'mdf', errors);
+  let parts = buildFree(values, design, shapes, 'mdf', errors);
+  // piezas que atraviesan el mueble existente: se pegan a su cabecera, pies o costado según su nombre
+  const ref = base.components.length ? findRef(design) : null;
+  if (ref) {
+    const rp = parts.find((p) => p.source?.comp === ref.comp.id);
+    const rb = rp && bounds3([rp]);
+    const fixed = new Set<string>();
+    for (const p of parts) {
+      if (!rb || p.process === 'ref' || !p.source || fixed.has(p.source.comp)) continue;
+      const pb = bounds3([p]);
+      if (![0, 1, 2].every((k) => Math.min(pb.max[k], rb.max[k]) - Math.max(pb.min[k], rb.min[k]) > 2)) continue;
+      const i = design.components.findIndex((c) => c.id === p.source!.comp);
+      const c = design.components[i];
+      const side: RefSide | null = /respaldo|cabecer/i.test(c.name) ? 'cabecera' : /piecera|pies/i.test(c.name) ? 'pies' : /baranda|costado|lateral|fald/i.test(c.name) ? 'frente' : null;
+      if (!side) { issues.push(`${c.name}: atraviesa «${ref.name}»; ubícala con "Ubicar junto a".`); continue; }
+      design.components[i] = placeAtRef(c, ref, side);
+      fixed.add(c.id);
+      issues.push(`${c.name}: atravesaba «${ref.name}»; se ubicó en ${side === 'frente' ? 'el costado' : `la ${side}`}.`);
+    }
+    if (fixed.size) parts = buildFree(values, design, shapes, 'mdf', []);
+  }
   issues.push(...errors);
 
   return {

@@ -28,7 +28,8 @@ export function openWelcome(first: boolean, hooks: WelcomeHooks) {
   const close = () => wrap.remove();
   const go = async (p: Project, route = 'modelo') => { close(); await hooks.created(p, route); };
 
-  const fromScratch = () => go(newProject('Nuevo producto'));
+  // un producto nuevo parte por el paso 1 (Concepto); los ejemplos abren directo en el 3D
+  const fromScratch = () => go(newProject('Nuevo producto'), 'concepto');
   const fromStarter = (id: string) => {
     const st = STARTERS.find((s) => s.id === id)!;
     const p = newProject(st.name);

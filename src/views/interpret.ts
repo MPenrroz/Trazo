@@ -1,7 +1,7 @@
 // "Crear diseño desde una imagen": Claude interpreta la referencia y propone un diseño libre editable.
 // Funciona donde la página puede consultar a Claude (enlace de claude.ai, capacidad `sample` con imágenes);
 // en la app instalada el botón no aparece.
-import { addReference, freeParams } from '../core/free';
+import { addReference, findRef, freeParams } from '../core/free';
 import { bounds2 } from '../core/geom';
 import { buildPrompt, sanitizeProposal, type Proposal } from '../core/proposal';
 import { fieldValue } from '../core/simple';
@@ -113,6 +113,12 @@ export async function openInterpret(refs: RefImage[], start = 0, done?: () => vo
   const exL = h('input', { id: 'ai-ex-l', inputmode: 'decimal', placeholder: 'Largo (ej: 200 cm)' });
   const exA = h('input', { id: 'ai-ex-a', inputmode: 'decimal', placeholder: 'Ancho (ej: 106 cm)' });
   const exH = h('input', { id: 'ai-ex-h', inputmode: 'decimal', placeholder: 'Alto (ej: 45 cm)' });
+  // si el proyecto ya tiene el volumen de referencia (Concepto o Modelo), se precarga
+  const cur = findRef(store.project.free);
+  if (cur) {
+    const mm = (f: 'w' | 'h' | 't') => { const v = fieldValue(cur.comp, f, store.values); return Number.isFinite(v) ? `${Math.round(v)} mm` : ''; };
+    exName.value = cur.name; exL.value = mm('w'); exA.value = mm('h'); exH.value = mm('t');
+  }
   const existing = () => {
     const l = parseMm(exL.value), a = parseMm(exA.value), hh = parseMm(exH.value);
     return [l, a, hh].every((n) => Number.isFinite(n) && n > 0) ? { name: exName.value.trim() || 'Mueble existente', largo: l, ancho: a, alto: hh } : undefined;

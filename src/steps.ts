@@ -19,7 +19,9 @@ export function nextStep(fromId: string, hint?: string, compact = false): HTMLEl
   const skip = next && 'optional' in next && next.optional ? next : null;
   if (skip) next = STEPS[i + 2];
   if (!next) return null;
+  const prev = !compact && i > 0 ? STEPS[i - 1] : null;
   return h('div', { class: 'next-step' },
+    prev ? h('a', { class: 'btn ghost prev', href: `#/${prev.id}` }, `← ${prev.label}`) : null,
     hint ? h('span', { class: 'muted' }, hint) : null,
     skip && !compact ? h('a', { class: 'btn ghost', href: `#/${skip.id}` }, `Dibujar siluetas (opcional)`) : null,
     h('a', { class: 'btn', href: `#/${next.id}`, title: `Siguiente: ${next.label}`, 'aria-label': `Siguiente: ${next.label}` }, compact ? `${next.label} →` : `Siguiente: ${next.label} →`));

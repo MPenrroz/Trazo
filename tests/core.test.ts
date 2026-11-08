@@ -546,3 +546,34 @@ describe('curvas suaves (NURBS / arcos)', () => {
     expect(nestingDxf(a.nest)).toMatch(/\n42\n-?0\.\d+/);
   });
 });
+
+import { findRef, placeAtRef } from '../src/core/free';
+
+describe('piezas junto al mueble existente', () => {
+  const base = addReference({ params: [], components: [] }, 'Cama nido', 2000, 1060, 450);
+  const vals = (d: typeof base) => Object.fromEntries(freeParams(d).map((p) => [p.key, p.key === 't' ? 18 : p.default]));
+  it('cabecera, pies y costado quedan pegados y siguen las medidas', () => {
+    const r = findRef(base)!;
+    const resp = newComponent({ name: 'Respaldo', h: '1000' });
+    const d = { params: base.params, components: [...base.components, placeAtRef(resp, r, 'cabecera'), placeAtRef(resp, r, 'pies'), placeAtRef(newComponent({ h: '300', z: '450' }), r, 'frente')] };
+    const ps = buildFree(vals(d), d, {}, 'mdf');
+    const bb = (i: number) => bounds3([ps[i]]);
+    expect(bb(1).min.map(Math.round)).toEqual([-18, -18, 0]);
+    expect(bb(1).max.map(Math.round)).toEqual([0, 1078, 1000]);
+    expect(Math.round(bb(2).min[0])).toBe(2000);
+    expect(bb(3).min.map(Math.round)).toEqual([0, -18, 450]);
+    expect(Math.round(bb(3).max[0])).toBe(2000);
+    const a = analyse(ps, DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(a.checks.some((c) => /atraviesa/.test(c.msg))).toBe(false);
+  });
+  it('la propuesta de la IA que atraviesa la cama se corrige y la revisión avisa', () => {
+    const raw = { components: [{ name: 'Respaldo nube', orient: 'XZ', w: 'ref_ancho + 2*t', h: '1000', x: '0', y: '300', z: '0' }] };
+    const pr = sanitizeProposal(raw, 18, base);
+    const c = pr.design.components.find((k) => k.name === 'Respaldo nube')!;
+    expect(c.orient).toBe('YZ');
+    expect(pr.issues.join(' ')).toMatch(/cabecera/);
+    const bad = { params: base.params, components: [...base.components, newComponent({ name: 'Caja', w: '500', h: '200', x: '100', y: '100' })] };
+    const a = analyse(buildFree(vals(bad), bad, {}, 'mdf'), DEFAULT_METHODS[0], DEFAULT_MATERIALS[0], pricing, DEFAULT_MATERIALS);
+    expect(a.checks.some((k) => /atraviesa/.test(k.msg))).toBe(true);
+  });
+});

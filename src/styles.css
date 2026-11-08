@@ -266,12 +266,20 @@ button.sm, .btn.sm { min-height: var(--tap); padding: 0 12px; font-size: 14px; }
 
 /* --- Tanda de arreglos rápidos --- */
 /* G4: los 7 pasos siempre caben: los no activos muestran solo su número bajo 1280 px */
+/* Pasos: número con su nombre debajo (todos visibles en iPad); en teléfono solo el activo lleva nombre */
 @media (max-width: 1280px) {
-  .tabs { overflow: visible; }
-  .tabs a:not(.on) span { display: none; }
-  .tabs a:not(.on) { padding: 0 8px; min-width: var(--tap); justify-content: center; }
+  .tabs { overflow: visible; gap: 0; }
+  .tabs a { flex-direction: column; gap: 2px; padding: 4px 6px; min-width: 64px; justify-content: center; font-size: 11.5px; line-height: 1.1; }
+  .tabs a.on { font-size: 12px; }
 }
-@media (max-width: 760px) { .tabs a.on span { display: inline; } }
+@media (max-width: 760px) {
+  .tabs a:not(.on) span { display: none; }
+  .tabs a { min-width: var(--tap); }
+}
+/* ubicar pieza junto al volumen de referencia */
+.ref-place { display: grid; gap: 6px; padding: 10px; border-radius: 10px; background: #f3f1ec; }
+.ref-place .chip { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.next-step .prev { margin-right: auto; }
 
 /* enlace con aspecto de botón */
 a.btn { display: inline-flex; align-items: center; justify-content: center; min-height: var(--tap); padding: 0 16px; border-radius: 10px; background: var(--accent-2); color: #fff; text-decoration: none; font-weight: 600; white-space: nowrap; }

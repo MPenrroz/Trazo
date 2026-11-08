@@ -297,3 +297,41 @@ export function addReference(d: FreeDesign, name: string, largo: number, ancho: 
     components: [...d.components, newComponent({ name: `${name} (referencia)`, role: 'Referencia', orient: 'XY', kind: 'ref', w: kl, h: ka, t: kh, x: '0', y: '0', z: '0' })],
   };
 }
+
+// ---------------------------------------------------------------------------- volumen de referencia
+
+export interface RefInfo { comp: Component; name: string; L: string; A: string; H: string; x: string; y: string; z: string }
+
+/** Primer volumen de referencia acostado (XY) del diseño, con sus medidas como fórmulas. */
+export function findRef(d: FreeDesign | undefined): RefInfo | null {
+  const c = d?.components.find((k) => k.kind === 'ref' && k.orient === 'XY');
+  if (!c) return null;
+  return { comp: c, name: c.name.replace(/ \(referencia\)$/, ''), L: c.w, A: c.h, H: c.t, x: c.x, y: c.y, z: c.z };
+}
+
+export type RefSide = 'cabecera' | 'pies' | 'frente' | 'fondo' | 'encima';
+export const REF_SIDES: { id: RefSide; label: string; help: string }[] = [
+  { id: 'cabecera', label: 'Cabecera', help: 'De lado, cubre el ancho en el extremo izquierdo (x = 0)' },
+  { id: 'pies', label: 'Pies', help: 'De lado, cubre el ancho en el extremo derecho' },
+  { id: 'frente', label: 'Costado frente', help: 'De frente, a lo largo, en el lado cercano (y = 0)' },
+  { id: 'fondo', label: 'Costado fondo', help: 'De frente, a lo largo, en el lado del muro' },
+  { id: 'encima', label: 'Encima', help: 'Acostada sobre el volumen' },
+];
+
+const par = (s: string) => (/^[\w.]+$/.test(s.trim()) ? s.trim() : `(${s.trim()})`);
+const plus = (a: string, b: string) => (a.trim() === '0' ? b : b.trim() === '0' ? a.trim() : `${par(a)} + ${b}`);
+
+/**
+ * Ubica una pieza pegada al volumen de referencia: cambia orientación, largo y posición con fórmulas
+ * sobre sus medidas (si la cama cambia, la pieza la sigue). El alto y la altura (z) de la pieza se conservan.
+ */
+export function placeAtRef(c: Component, r: RefInfo, side: RefSide): Component {
+  const wide = `${par(r.A)} + 2*t`;
+  switch (side) {
+    case 'cabecera': return { ...c, orient: 'YZ', w: wide, x: plus(r.x, '-t').replace('+ -t', '- t'), y: plus(r.y, '-t').replace('+ -t', '- t') };
+    case 'pies': return { ...c, orient: 'YZ', w: wide, x: plus(r.x, par(r.L)), y: plus(r.y, '-t').replace('+ -t', '- t') };
+    case 'frente': return { ...c, orient: 'XZ', w: r.L, x: r.x, y: plus(r.y, '-t').replace('+ -t', '- t') };
+    case 'fondo': return { ...c, orient: 'XZ', w: r.L, x: r.x, y: plus(r.y, par(r.A)) };
+    case 'encima': return { ...c, orient: 'XY', w: r.L, h: r.A, x: r.x, y: r.y, z: plus(r.z, par(r.H)) };
+  }
+}

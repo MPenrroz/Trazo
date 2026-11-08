@@ -1,7 +1,7 @@
 import { applyDrag, type Field } from '../core/direct';
 import { evalExpr } from '../core/expr';
 import { advancedRepeat, fieldValue, isNumber, linkedParam, parseRepeat, parseWhen, setRepeat, type Axis } from '../core/simple';
-import { STARTERS, addReference, emptyFree, freeParams, newComponent, scopeFrom, type Component, type FreeDesign } from '../core/free';
+import { REF_SIDES, STARTERS, addReference, emptyFree, findRef, freeParams, newComponent, placeAtRef, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
 import type { ParamDef, Project, V2 } from '../core/types';
@@ -183,6 +183,18 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         val === '__adv' ? h('option', { value: '__adv', selected: true, disabled: true }, 'Condición avanzada') : null));
   }
 
+  /** Atajo para piezas de un mueble existente: pegarla a la cabecera, los pies o un costado del volumen de referencia. */
+  function refPlace(c: Component) {
+    const r = findRef(store.project.free);
+    if (!r || c.kind === 'ref') return null;
+    return h('div', { class: 'ref-place' },
+      h('span', { class: 'fl' }, `Ubicar junto a «${r.name}»`),
+      h('div', { class: 'chips' }, ...REF_SIDES.map((sd) => h('button', { class: 'chip', title: sd.help, onclick: () => {
+        replace(c, placeAtRef(c, r, sd.id));
+        toast(`«${c.name}» en ${sd.label.toLowerCase()}: su largo y posición siguen las medidas de «${r.name}».`);
+      } }, sd.label))));
+  }
+
   function card(c: Component, idx: number, total: number) {
     const shapes = store.shapes;
     const det = h('details', { class: `piece ${c.kind}`, open: openId === c.id, 'data-id': c.id });
@@ -210,6 +222,7 @@ export function piecesEditor(changed: () => void, onOpen?: (compId: string | nul
         h('div', { class: 'orient', role: 'radiogroup', 'aria-label': 'Orientación' },
           ...(Object.keys(ORIENT_ICON) as Component['orient'][]).map((o) => h('button', { class: `orient-btn ${o === c.orient ? 'on' : ''}`, role: 'radio', 'aria-checked': String(o === c.orient), onclick: () => { if (o !== c.orient) set(c, (x) => { x.orient = o; }, true); } },
             h('span', { html: ORIENT_ICON[o][1] }), ORIENT_ICON[o][0]))),
+        refPlace(c),
         h('div', { class: 'grid3' }, numField(c, 'w', 'Ancho'), numField(c, 'h', 'Alto'), thicknessField(c)),
         h('div', { class: 'grid3' }, numField(c, 'x', 'X · largo'), numField(c, 'y', 'Y · fondo'), numField(c, 'z', 'Z · altura')),
         h('p', { class: 'muted small' }, 'Medidas en mm. La posición es la esquina más cercana al origen; también puedes arrastrar la pieza en el 3D.'),

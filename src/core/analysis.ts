@@ -21,7 +21,17 @@ export interface Analysis {
 export function analyse(allParts: Part[], method: FabMethod, material: Material, project: Pick<Project, 'pricing'>, materials: Material[] = []): Analysis {
   const checks: Check[] = [];
   // las piezas de referencia (cama, muro existente) no se fabrican ni cotizan
+  const refs = allParts.filter((p) => p.process === 'ref');
   allParts = allParts.filter((p) => p.process !== 'ref');
+  // piezas que atraviesan el mueble existente: casi siempre una pieza girada o mal ubicada
+  for (const r of refs) {
+    const rb = bounds3([r]);
+    for (const p of allParts) {
+      const pb = bounds3([p]);
+      const pen = [0, 1, 2].map((k) => Math.min(pb.max[k], rb.max[k]) - Math.max(pb.min[k], rb.min[k]));
+      if (pen.every((d) => d > 2)) checks.push({ level: 'warn', part: p.name, msg: `${p.name}: atraviesa el volumen de referencia «${r.name.replace(/ \(referencia\)$/, '')}». Usa "Ubicar junto a" en la pieza para ponerla en la cabecera, los pies o un costado.` });
+    }
+  }
   const b3 = bounds3(allParts);
   // solo las piezas de tablero pasan por CNC; el tapiz se cotiza aparte
   const parts = allParts.filter((p) => p.process !== 'tapiz');
