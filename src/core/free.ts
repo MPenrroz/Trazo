@@ -66,11 +66,8 @@ function inside(p: V2, poly: V2[]) {
   return c;
 }
 
-/**
- * Formas cerradas del boceto utilizables como piezas. Las formas contenidas dentro de otra
- * se vuelven calados de esa forma (no se listan aparte).
- */
-export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
+/** Formas cerradas del boceto y de cuál forma es calado cada una (la menor que la contiene). */
+function closedPolys(sk: SketchDoc) {
   const polys = sk.elements.map((e) => ({ e, poly: elPoly(e) })).filter((x): x is { e: SketchEl; poly: V2[] } => !!x.poly);
   const area = (p: V2[]) => Math.abs(polyArea(p));
   const parentOf = new Map<string, string>();
@@ -82,6 +79,21 @@ export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
     }
     if (best) parentOf.set(a.e.id, best.id);
   }
+  return { polys, parentOf };
+}
+
+/** Ids de los calados de una silueta, en el mismo orden que `Shape.holes`. */
+export function shapeChildren(sk: SketchDoc, id: string): string[] {
+  const { polys, parentOf } = closedPolys(sk);
+  return polys.filter((h) => parentOf.get(h.e.id) === id).map((h) => h.e.id);
+}
+
+/**
+ * Formas cerradas del boceto utilizables como piezas. Las formas contenidas dentro de otra
+ * se vuelven calados de esa forma (no se listan aparte).
+ */
+export function shapesFromSketch(sk: SketchDoc): Record<string, Shape> {
+  const { polys, parentOf } = closedPolys(sk);
   const out: Record<string, Shape> = {};
   let k = 0;
   for (const s of polys) {

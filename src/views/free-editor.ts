@@ -1,7 +1,7 @@
 import { applyDrag, getScope, setScope, sharedLinks, type Field } from '../core/direct';
 import { evalExpr } from '../core/expr';
 import { advancedRepeat, fieldValue, isNumber, linkedParam, parseRepeat, parseWhen, setRepeat, type Axis } from '../core/simple';
-import { REF_SIDES, STARTERS, addReference, emptyFree, findRef, freeParams, newComponent, placeAtRef, scopeFrom, type Component, type FreeDesign } from '../core/free';
+import { REF_SIDES, STARTERS, shapeChildren, addReference, emptyFree, findRef, freeParams, newComponent, placeAtRef, scopeFrom, type Component, type FreeDesign } from '../core/free';
 import { bounds2, uid } from '../core/geom';
 import { store } from '../core/store';
 import type { ParamDef, Project, SketchEl, V2 } from '../core/types';
@@ -400,6 +400,26 @@ export function paramDefsEditor(changed: () => void, remember?: () => void): HTM
  * "Dibujar en la pieza": abre el Boceto con la silueta de la pieza a escala. Si es un rectángulo,
  * se crea su silueta rectangular en el boceto. Lo que se dibuje dentro se vuelve calado.
  */
+
+/** Copia la forma (y sus calados) de una pieza para que solo esa pieza la use. */
+export function forkShape(compId: string) {
+  const c = design(store.project).components.find((x) => x.id === compId);
+  if (!c || c.shape === 'rect') return;
+  store.update((p) => {
+    const src = p.sketch.elements.find((e) => e.id === c.shape);
+    if (!src || src.kind === 'dim' || src.kind === 'free') return;
+    const pts: V2[] = p.sketch.elements.flatMap((e) => (e.kind === 'circle' ? [e.c] : e.kind === 'dim' ? [e.a, e.b] : e.pts));
+    const all = bounds2(pts), own = bounds2(src.kind === 'circle' ? [[src.c[0] - src.r, src.c[1] - src.r], [src.c[0] + src.r, src.c[1] + src.r]] : src.pts);
+    const dx = all.x1 + 120 - own.x0;
+    const id = uid('sil-');
+    // la forma y sus calados se copian a la derecha del boceto
+    const kids = shapeChildren(p.sketch, src.id).map((k) => p.sketch.elements.find((e) => e.id === k)!).filter(Boolean);
+    const mv = (e: SketchEl, nid: string): SketchEl => (e.kind === 'circle' ? { ...e, id: nid, c: [e.c[0] + dx, e.c[1]] } : e.kind === 'poly' ? { ...e, id: nid, pts: e.pts.map(([x, y]) => [x + dx, y] as V2) } : e);
+    p.sketch.elements.push(mv({ ...src, name: c.name } as SketchEl, id), ...kids.map((e) => mv(e, uid('s'))));
+    design(p).components.find((x) => x.id === compId)!.shape = id;
+  }, 'free');
+}
+
 export async function drawOnPiece(compId: string) {
   const parts = store.parts();
   const part = parts.find((p) => p.source?.comp === compId);
@@ -410,22 +430,7 @@ export async function drawOnPiece(compId: string) {
   if (sharing.length && store.shapes[c.shape]) {
     const ch = await choiceDialog(`La forma de «${c.name}» también la usa${sharing.length > 1 ? 'n' : ''} ${sharing.map((x) => `«${x.name}»`).join(', ')}.`, [['copy', 'Solo esta pieza (hacer una copia de la forma)'], ['shared', 'Editarla para todas']]);
     if (!ch) return;
-    if (ch === 'copy') {
-      store.update((p) => {
-        const src = p.sketch.elements.find((e) => e.id === c.shape);
-        if (!src || src.kind === 'dim' || src.kind === 'free') return;
-        const pts: V2[] = p.sketch.elements.flatMap((e) => (e.kind === 'circle' ? [e.c] : e.kind === 'dim' ? [e.a, e.b] : e.pts));
-        const all = bounds2(pts), own = bounds2(src.kind === 'circle' ? [[src.c[0] - src.r, src.c[1] - src.r], [src.c[0] + src.r, src.c[1] + src.r]] : src.pts);
-        const dx = all.x1 + 120 - own.x0;
-        const id = uid('sil-');
-        // la forma y sus calados (lo que está dentro de ella) se copian a la derecha
-        const inner = p.sketch.elements.filter((e) => e.id !== src.id && (e.kind === 'poly' || e.kind === 'circle') && store.shapes[c.shape] && (e.kind === 'circle' ? [e.c] : e.pts).every(([x, y]) => x >= own.x0 && x <= own.x1 && y >= own.y0 && y <= own.y1));
-        const mv = <T extends SketchEl>(e: T, nid: string): T => (e.kind === 'circle' ? { ...e, id: nid, c: [e.c[0] + dx, e.c[1]] } : e.kind === 'poly' ? { ...e, id: nid, pts: e.pts.map(([x, y]) => [x + dx, y] as V2) } : e) as T;
-        p.sketch.elements.push(mv({ ...src, name: `${c.name}` } as SketchEl, id), ...inner.map((e) => mv(e, uid('s'))));
-        const comp = design(p).components.find((x) => x.id === compId)!;
-        comp.shape = id;
-      }, 'free');
-    }
+    if (ch === 'copy') forkShape(compId);
   }
   if (c.shape === 'rect' || !store.shapes[c.shape]) {
     const b = bounds2(part.profile);

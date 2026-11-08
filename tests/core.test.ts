@@ -586,3 +586,37 @@ describe('piezas junto al mueble existente', () => {
     expect(a.checks.some((k) => /atraviesa/.test(k.msg))).toBe(true);
   });
 });
+
+import { ghosts, isRealScale, pieceMap, realScaleElements, toMm } from '../src/core/pieceview';
+import type { SketchDoc as SkDoc } from '../src/core/types';
+
+describe('vista 2D de la pieza (2D | 3D)', () => {
+  const st = STARTERS[0];
+  const design = st.design();
+  const values = Object.fromEntries(freeParams(design).map((d) => [d.key, d.key === 't' ? 18 : d.default]));
+  const sk: SkDoc = { elements: st.sketch!(0, 0), mmPerPx: 0.7, calibrated: false, underlayOpacity: 1 };
+  const resp = () => buildFree(values, design, shapesFromSketch(sk), 'mdf').find((p) => p.id === 'respaldo')!;
+  it('llevar la silueta a escala real no cambia la pieza en 3D', () => {
+    const before = resp();
+    expect(isRealScale(sk, 'respaldo-forma', before)).toBe(false);
+    const els = realScaleElements(sk, 'respaldo-forma', before, true)!;
+    for (const e of els) sk.elements[sk.elements.findIndex((x) => x.id === e.id)] = e;
+    const after = resp();
+    expect(isRealScale(sk, 'respaldo-forma', after)).toBe(true);
+    const near = (a: number[][], b: number[][]) => a.every((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1]) < 0.01);
+    expect(near(after.profile, before.profile)).toBe(true);
+    expect(near(after.holes![0], before.holes![0])).toBe(true);
+    // 1 px del boceto = mmPerPx mm de la pieza
+    const m = pieceMap(sk, 'respaldo-forma', after)!;
+    const e = sk.elements.find((x) => x.id === 'respaldo-forma')!;
+    const pts = e.kind === 'poly' ? e.pts : [];
+    const bx = Math.max(...pts.map((p) => toMm(m, p)[0]));
+    expect(Math.round(bx)).toBe(Math.round(Math.max(...after.profile.map((p) => p[0]))));
+  });
+  it('proyecta las piezas vecinas sobre el plano de la pieza', () => {
+    const parts = buildFree(values, design, shapesFromSketch(sk), 'mdf');
+    const g = ghosts(parts.find((p) => p.id === 'respaldo')!, parts);
+    expect(g.some((x) => x.ref)).toBe(true);
+    expect(g.length).toBeGreaterThan(1);
+  });
+});

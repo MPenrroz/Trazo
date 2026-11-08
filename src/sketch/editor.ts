@@ -28,6 +28,12 @@ export interface EditorHooks {
   protectedIds?(): Set<string>;
   /** Mensajes breves al usuario. */
   notify?(msg: string): void;
+  /** Vista 2D de una pieza: piezas vecinas proyectadas (px del boceto), solo de referencia. */
+  ghosts?(): { name: string; pts: V2[]; ref: boolean }[];
+  /** Elementos editables (los demás se ven tenues y no se tocan). null = todos. */
+  scope?(): Set<string> | null;
+  /** Durante un arrastre (el documento ya cambió, sin guardar): para actualizar el 3D en vivo. */
+  live?(): void;
 }
 
 type EditDrag = { mode: 'vertex' | 'move' | 'radius' | 'axis'; id: string; index: number; start: V2; before: SketchEl[]; axis0: number; moved: boolean; hitSeg: number };
@@ -66,6 +72,12 @@ export class SketchEditor {
   selected: string | null = null;
   private drag: EditDrag | null = null;
   private warnedProtected = false;
+  /** Mostrar la imagen de calco (en la vista 2D de pieza se oculta). */
+  showUnderlay = true;
+  /** Medidas siempre en mm (vista 2D de pieza: la silueta está a escala real). */
+  forceMm = false;
+  private liveRaf = 0;
+  private inScope(e: SketchEl) { const sc = this.hooks.scope?.(); return !sc || sc.has(e.id); }
 
   constructor(private host: HTMLElement, private hooks: EditorHooks) {
     this.canvas.className = 'sketch-canvas';
@@ -289,7 +301,7 @@ export class SketchEditor {
   private hitEl(w: V2): SketchEl | null {
     const doc = this.hooks.doc();
     const tol = 12 / this.view.s;
-    const els = [...doc.elements].reverse();
+    const els = [...doc.elements].reverse().filter((e) => this.inScope(e));
     return els.find((e) => distToEl(w, e) < tol)
       ?? els.find((e) => (e.kind === 'circle' ? d2(w, e.c) <= e.r : e.kind === 'poly' && e.closed && pointInPoly(w, e.pts)))
       ?? null;
@@ -348,6 +360,7 @@ export class SketchEditor {
       else if (orig.kind === 'poly') { const pts = orig.pts.map((q) => [q[0], q[1]] as V2); pts[g.index] = p; doc.elements[i] = { ...orig, pts }; }
     }
     this.render();
+    if (this.hooks.live) { cancelAnimationFrame(this.liveRaf); this.liveRaf = requestAnimationFrame(() => this.hooks.live?.()); }
   }
 
   private async editUp(cancel: boolean) {
@@ -400,7 +413,7 @@ export class SketchEditor {
   private eraseAt(w: V2) {
     const doc = this.hooks.doc();
     const tol = 10 / this.view.s;
-    const hit = doc.elements.find((e) => distToEl(w, e) < tol);
+    const hit = doc.elements.filter((e) => this.inScope(e)).find((e) => distToEl(w, e) < tol);
     if (hit && this.hooks.protectedIds?.().has(hit.id)) {
       if (!this.warnedProtected) { this.warnedProtected = true; this.hooks.notify?.('Esta silueta se usa en una pieza: la goma no la borra. Para cambiarla, redibuja su contorno o bórrala desde Editar.'); }
       return;
@@ -424,7 +437,7 @@ export class SketchEditor {
     ctx.setTransform(dpr * this.view.s, 0, 0, dpr * this.view.s, dpr * this.view.x, dpr * this.view.y);
     const px = 1 / this.view.s;
 
-    if (doc.underlay) {
+    if (doc.underlay && this.showUnderlay) {
       if (this.imgSrc !== doc.underlay) { this.imgSrc = doc.underlay; this.img = new Image(); this.img.onload = () => this.render(); this.img.src = doc.underlay; }
       if (this.img?.complete && doc.underlaySize) { ctx.globalAlpha = doc.underlayOpacity; ctx.drawImage(this.img, 0, 0, doc.underlaySize[0], doc.underlaySize[1]); ctx.globalAlpha = 1; }
     }
@@ -443,7 +456,25 @@ export class SketchEditor {
       else { trace(focus).forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); ctx.closePath(); }
       ctx.fillStyle = 'rgba(37,99,235,0.08)'; ctx.fill(); ctx.restore();
     }
-    for (const e of doc.elements) this.drawEl(e, doc, px, this.showProfile && e.id === doc.profileId);
+    // piezas vecinas proyectadas: guía de dónde está todo (no se editan)
+    const labeled = new Set<string>();
+    for (const g of this.hooks.ghosts?.() ?? []) {
+      if (g.pts.length < 2) continue;
+      ctx.save(); ctx.setLineDash([6 * px, 5 * px]); ctx.lineWidth = 1.2 * px;
+      ctx.strokeStyle = g.ref ? 'rgba(100,116,139,.55)' : 'rgba(234,88,12,.55)';
+      ctx.fillStyle = g.ref ? 'rgba(100,116,139,.06)' : 'rgba(234,88,12,.05)';
+      ctx.beginPath(); g.pts.forEach((p, i) => (i ? ctx.lineTo(...p) : ctx.moveTo(...p))); ctx.closePath(); ctx.fill(); ctx.stroke();
+      const top = g.pts.reduce((a, b) => (b[1] < a[1] ? b : a));
+      ctx.setLineDash([]); ctx.fillStyle = g.ref ? '#64748b' : '#c2410c'; ctx.font = `${11 * px}px system-ui`;
+      if (!labeled.has(g.name)) { labeled.add(g.name); ctx.fillText(g.name, top[0] + 4 * px, top[1] - 4 * px); }
+      ctx.restore();
+    }
+    for (const e of doc.elements) {
+      const on = this.inScope(e);
+      if (!on) ctx.globalAlpha = 0.15;
+      this.drawEl(e, doc, px, this.showProfile && e.id === doc.profileId);
+      ctx.globalAlpha = 1;
+    }
     const sel = doc.elements.find((e) => e.id === this.selected);
     if (sel && this.tool === 'edit') this.drawSelection(sel, px);
     if (this.stroke && this.stroke.length > 1) {
@@ -499,7 +530,7 @@ export class SketchEditor {
     ctx.fillText(text, p[0], p[1] + 2 * px);
   }
 
-  private fmt(pxLen: number, doc: SketchDoc) { return doc.calibrated ? `${round(pxLen * doc.mmPerPx, 0)} mm` : `${round(pxLen, 0)} px`; }
+  private fmt(pxLen: number, doc: SketchDoc) { return doc.calibrated || this.forceMm ? `${round(pxLen * doc.mmPerPx, 0)} mm` : `${round(pxLen, 0)} px`; }
 
   private drawEl(e: SketchEl, doc: SketchDoc, px: number, isProfile: boolean) {
     const { ctx } = this;

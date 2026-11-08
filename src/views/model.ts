@@ -7,6 +7,7 @@ import { nextStep } from '../steps';
 import { getScope, setScope, sharedLinks } from '../core/direct';
 import { drawOnPiece, paramDefsEditor, piecesEditor, type PiecesEl } from './free-editor';
 import { DirectEdit, partDims } from './direct-edit';
+import { piece2d, type Piece2D } from './piece2d';
 import { convertToFree, freeEquivalent } from './design-change';
 import { confirmDialog, toast } from '../ui';
 import { uid } from '../core/geom';
@@ -25,6 +26,9 @@ export function modelView(root: HTMLElement) {
   const piecesEl = h('div', { class: 'pieces' });
   const defsEl = h('div', { class: 'defs' });
   let direct: DirectEdit | null = null;
+  // vista 2D de la pieza junto al 3D (solo diseño libre)
+  let p2d: Piece2D | null = null;
+  let split = free && (() => { try { return sessionStorage.getItem('trazo:split') === '1'; } catch { return false; } })();
   let pieces: PiecesEl | null = null;
   const selBar = h('div', { class: 'sel-bar', hidden: true });
   // deshacer / rehacer de la edición en 3D y en fichas
@@ -53,6 +57,7 @@ export function modelView(root: HTMLElement) {
     viewer?.setParts(parts, store.project.fab.materials, refit);
     direct?.refresh();
     renderSelBar(direct?.part ?? null);
+    p2d?.refresh();
     const a = analyse(parts, store.method, store.material, store.project, store.project.fab.materials);
     const empty = !parts.filter((q) => q.process !== 'ref').length;
     const worst = empty ? 'none' : a.checks.some((c) => c.level === 'error') ? 'error' : a.checks.some((c) => c.level === 'warn') ? 'warn' : 'ok';
@@ -127,7 +132,7 @@ export function modelView(root: HTMLElement) {
     : [['params', 'Diseño'], ['rules', 'Reglas para tienda']];
   const panes: Record<Mode, HTMLElement> = { params: paramsEl, pieces: piecesEl, defs: defsEl, rules: rulesEl };
   const onFreeChange = () => { refresh(); };
-  const onOpen = (compId: string | null) => { if (direct && compId !== (direct.part?.source?.comp ?? null)) { resetExplode(); direct.select(compId, false); renderSelBar(direct.part); } };
+  const onOpen = (compId: string | null) => { if (direct && compId !== (direct.part?.source?.comp ?? null)) { resetExplode(); direct.select(compId, false); renderSelBar(direct.part); if (split) p2d?.show(compId); } };
 
   function renderSelBar(p: Part | null) {
     selBar.hidden = !p;
@@ -164,6 +169,37 @@ export function modelView(root: HTMLElement) {
     else defsEl.replaceChildren(paramDefsEditor(onFreeChange, remember));
   }
 
+  /** Vista previa en 3D de un diseño temporal (arrastre en 3D o en 2D), sin guardar. */
+  function previewDesign(design: FreeDesign, values: ParamValues) {
+    if (!viewer) return;
+    const prev = { free: store.project.free, values: store.project.values };
+    store.project.free = design; store.project.values = values;
+    const parts = store.parts();
+    store.project.free = prev.free; store.project.values = prev.values;
+    viewer.setParts(parts, store.project.fab.materials);
+    viewer.highlight(direct?.part?.id ?? null, parts.filter((q) => q.source?.comp === direct?.part?.source?.comp).map((q) => q.id));
+  }
+
+  // ---- 2D | 3D
+  const dualPane = h('div', { class: 'dual-2d', hidden: !split });
+  const splitBtn = h('button', { class: `ghost ${split ? 'on' : ''}`, title: 'Ver la pieza en 2D junto al 3D', 'aria-label': 'Vista 2D de la pieza junto al 3D', onclick: () => setSplit(!split) }, '2D');
+  function setSplit(on: boolean) {
+    split = on;
+    try { sessionStorage.setItem('trazo:split', on ? '1' : '0'); } catch { /* */ }
+    dualPane.hidden = !on;
+    dualPane.parentElement?.classList.toggle('on', on);
+    splitBtn.classList.toggle('on', on);
+    if (on && !p2d) {
+      p2d = piece2d({
+        preview: previewDesign,
+        changed: () => afterEdit(),
+        remember: () => remember(),
+      });
+      dualPane.replaceChildren(p2d.el);
+    }
+    if (on) p2d!.show(direct?.part?.source?.comp ?? null);
+  }
+
   const explode = h('input', { type: 'range', min: '0', max: '1', step: '0.01', value: '0' });
   explode.addEventListener('input', () => viewer?.setExplode(Number(explode.value) * 0.8));
 
@@ -174,11 +210,13 @@ export function modelView(root: HTMLElement) {
       tabs, piecesEl, paramsEl, defsEl, rulesEl),
     h('div', { class: 'main' },
       summary,
+      h('div', { class: 'dual' + (split ? ' on' : '') }, dualPane,
       h('div', { class: 'viewer-wrap' }, viewerEl, selBar,
         h('div', { class: 'viewer-tools' },
+          free ? splitBtn : null,
           free ? undoBtn : null, free ? redoBtn : null,
           h('label', null, 'Explotar', explode),
-          h('button', { class: 'ghost', onclick: () => viewer?.frame(store.parts()) }, 'Encuadrar'))),
+          h('button', { class: 'ghost', onclick: () => viewer?.frame(store.parts()) }, 'Encuadrar')))),
       checksEl)));
 
   switchMode(modes[0][0]);
@@ -191,15 +229,7 @@ export function modelView(root: HTMLElement) {
       design: () => (free ? store.project.free ?? null : null),
       params: () => store.params,
       values: () => store.values,
-      preview: (design, values) => {
-        // vista previa: se construye con el diseño temporal, sin guardar
-        const prev = { free: store.project.free, values: store.project.values };
-        store.project.free = design; store.project.values = values;
-        const parts = store.parts();
-        store.project.free = prev.free; store.project.values = prev.values;
-        viewer!.setParts(parts, store.project.fab.materials);
-        viewer!.highlight(direct!.part?.id ?? null, parts.filter((q) => q.source?.comp === direct!.part?.source?.comp).map((q) => q.id));
-      },
+      preview: previewDesign,
       commit: (res) => {
         remember();
         store.update((p) => { p.free = res.design; p.values = res.values; }, 'free');
@@ -209,6 +239,7 @@ export function modelView(root: HTMLElement) {
       selected: (part) => {
         resetExplode();
         renderSelBar(part);
+        if (split) p2d?.show(part?.source?.comp ?? null);
         if (free && part?.source) { if (piecesEl.hidden) switchMode('pieces'); pieces?.selectPiece(part.source.comp); }
         else pieces?.selectPiece(null);
       },
@@ -219,6 +250,7 @@ export function modelView(root: HTMLElement) {
     let back: string | null = null;
     try { back = sessionStorage.getItem('trazo:select'); sessionStorage.removeItem('trazo:select'); } catch { /* */ }
     if (back && free) direct.select(back);
+    if (split) setSplit(true);
   });
-  return () => { disposed = true; direct?.destroy(); viewer?.dispose(); };
+  return () => { disposed = true; direct?.destroy(); viewer?.dispose(); p2d?.destroy(); };
 }

@@ -185,4 +185,4 @@ Arreglos rápidos (S, prioridad A/B) que se pueden hacer en una sola tanda:
 | D4 | Las demás fichas distraen al editar una pieza. | Con una ficha abierta, las demás se compactan a una línea. | Hecho |
 | D5 | En la tienda, cambiar el largo mueve piezas hacia ambos lados. | Control **Crece desde: Izquierda / Centro / Derecha** sobre el 3D de la tienda. | Hecho |
 | D6 | Al recorrer opciones se pierde el 3D. | El 3D de la tienda queda fijo (sticky) mientras se desplazan las opciones. | Hecho |
-| D7 | 2D y 3D simultáneos y conectados; líneas CAD con restricciones. | Propuesta en conversación (bloque siguiente). | Pendiente |
+| D7 | 2D y 3D simultáneos y conectados; líneas CAD con restricciones. | **Fase A hecha:** botón **2D** en el Modelo: la pieza seleccionada a escala real junto al 3D (mover puntos, redibujar, calados), piezas vecinas proyectadas como guía, cambios en vivo en ambos sentidos; si el contorno se sale de su caja la pieza crece. Forma compartida: aviso y "Solo esta pieza". **Fase B** (líneas CAD con restricciones y cotas): pendiente. | Fase A |
